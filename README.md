@@ -1,5 +1,13 @@
 # FlatBook - Deterministic Order Book
 
+<p align="center">
+  <a href="https://github.com/vladipavliv/flatbook/actions"><img src="https://img.shields.io/github/actions/workflow/status/vladipavliv/flatbook/ci.yml?branch=main&style=flat-square" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/C%2B%2B-20-blue?style=flat-square" alt="Standard: C++20">
+  <img src="https://img.shields.io/badge/header--only-ff69b4?style=flat-square" alt="Header-only">
+  <a href="https://github.com/vladipavliv/flatbook/releases"><img src="https://img.shields.io/github/v/release/vladipavliv/flatbook?style=flat-square" alt="Release"></a>
+</p>
+
 A header-only, allocation-free order book and matching engine for C++20, built
 around direct-indexed arrays and a hierarchical bitmap.
 
@@ -7,12 +15,6 @@ On top of the core, FlatBook ships a sharded multi-symbol dispatcher, a
 deterministic journal with snapshot/restore and disk persistence for replay and
 recovery, LOBSTER market-data replay with a book validator, and Python bindings
 with a numpy batch API. Benchmarked against `std::map`, CppTrader and Liquibook.
-
-[![CI](https://github.com/vladipavliv/flatbook/actions/workflows/ci.yml/badge.svg)](https://github.com/vladipavliv/flatbook/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Standard: C++20](https://img.shields.io/badge/Standard-C%2B%2B20-blue.svg)]()
-[![Header-only](https://img.shields.io/badge/header--only-ff69b4.svg)]()
-[![Release](https://img.shields.io/github/v/release/vladipavliv/flatbook)](https://github.com/vladipavliv/flatbook/releases)
 
 Tested with GCC / Clang (libstdc++ & libc++) / MSVC; CI runs ASan+UBSan, TSan, clang-tidy, libFuzzer and coverage.
 
