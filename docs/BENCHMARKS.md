@@ -3,11 +3,17 @@
 Measured with Google Benchmark, GCC 15, `-O3` (add `-DFLATBOOK_NATIVE=ON` for
 `-march=native`), `CMAKE_BUILD_TYPE=Release`.
 
+## Test Environment
+
+OS: Ubuntu 26.04.1 LTS  
+CPU: AMD Ryzen 7 9800X3D 8-Core Processor  
+RAM: 64 GB @ 5200 MT/s  
+
 > **Reproducibility note:** the numbers below are single-run medians or
 > medians-of-10, illustrative rather than a rigorous claim. They were measured
-> on one machine; for anything you publish, record the CPU model, OS, and fixed
-> CPU frequency (`performance` governor), and regenerate on a quiet machine -
-> CI runners are noisy and have no stable frequency.
+> on the machine above; for anything you publish, record the CPU model, OS, and
+> fixed CPU frequency (`performance` governor), and regenerate on a quiet
+> machine - CI runners are noisy and have no stable frequency.
 
 <!-- BENCHMARKS:REPORT -->
 <!-- Regenerate with: ./dev.sh bench --report -->
