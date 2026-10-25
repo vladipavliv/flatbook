@@ -1,0 +1,8 @@
+{
+  "name": "flatbook",
+  "version": "0.1.0",
+  "description": "Header-only, allocation-free, deterministic order book and matching engine for C++20.",
+  "homepage": "https://github.com/vladipavliv/flatbook",
+  "license": "MIT",
+  "dependencies": []
+}
