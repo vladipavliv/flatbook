@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -14,6 +15,7 @@
 #endif
 
 #include "MatchingEngine.hpp"
+#include "SpinWait.hpp"
 #include "SpscQueue.hpp"
 
 namespace flatbook {
@@ -67,13 +69,21 @@ public:
   using Fill = typename Engine::Fill;
 
   /// One event delivered to the callback: a fill, an order result, or a cancel ack.
+  /// The `kind` tag selects the active union member; only trivially-copyable
+  /// members are used, so the SPSC memcpy stays valid.
   struct Event {
     enum class Kind : uint8_t { Fill, Result, Cancel };
     Kind kind{Kind::Fill};
     uint32_t symbolIdx{0};
-    Fill fill{};
-    AddResult result{};
-    bool cancelled{false};
+    union {
+      Fill fill;
+      AddResult result;
+      bool cancelled;
+    };
+
+    // Fill/AddResult have default member initializers (non-trivial ctors), so
+    // the union needs an explicit constructor that activates the trivial bool.
+    Event() noexcept : cancelled{false} {}
   };
 
   /// Invoked from the collector thread, one event at a time, in per-symbol order.
@@ -208,8 +218,11 @@ private:
   void post(uint32_t symbolIdx, const Command &cmd) {
     assert(symbolIdx < SymbolCount);
     Worker &w = *workers_[workerOf_[symbolIdx]];
+    SpinWait waiter;
     while (!w.input.write(cmd)) {
-      std::this_thread::yield();
+      if (!++waiter) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
     }
   }
 
@@ -255,15 +268,20 @@ private:
   }
 
   void pushOutput(Worker &w, const Event &e) {
+    SpinWait waiter;
     while (!w.output.write(e)) {
-      std::this_thread::yield();
+      if (!++waiter) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
     }
   }
 
   void workerLoop(Worker &w) {
     Command cmd;
+    SpinWait waiter;
     for (;;) {
       if (w.input.read(cmd)) {
+        waiter.reset();
         do {
           process(w, cmd);
         } while (w.input.read(cmd));
@@ -273,14 +291,15 @@ private:
           process(w, cmd);
         }
         break;
-      } else {
-        std::this_thread::yield();
+      } else if (!++waiter) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100)); // idle: give up the CPU
       }
     }
   }
 
   void collectLoop() {
     Event batch[SpscQueue<QueueCapacity>::MAX_BATCH_SIZE];
+    SpinWait waiter;
     auto drain = [&] {
       bool any = false;
       for (auto &wp : workers_) {
@@ -296,8 +315,10 @@ private:
     };
 
     while (!stop_.load(std::memory_order_acquire)) {
-      if (!drain()) {
-        std::this_thread::yield();
+      if (drain()) {
+        waiter.reset();
+      } else if (!++waiter) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100)); // idle: give up the CPU
       }
     }
     // Final drain: workers are already joined, so this catches everything.

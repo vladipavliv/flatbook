@@ -27,8 +27,9 @@ namespace flatbook {
  * `cancelOrder` is a synchronous boolean and is not assigned a sequence.
  *
  * Self-trade prevention is optional: when the book's `Participant` type is not
- * `void`, each order carries a participant key and matching skips resting
- * orders belonging to the same participant. The policy is cancel-newest: if an
+ * `void`, each order carries a participant key. A key of `0` disables STP (the
+ * order matches anything); a non-zero key groups orders into a participant
+ * whose orders never cross each other. The policy is cancel-newest: if an
  * aggressor's unfilled remainder would cross its own resting orders, the
  * remainder is cancelled instead of rested, so the book is never crossed.
  *
@@ -76,10 +77,9 @@ public:
    * postOnly is rejected.
    *
    * `participant` exists only when the book's Participant type is non-void; it
-   * is the self-trade-prevention key (matching skips the same participant).
-   * There is no "no participant" sentinel: `0` is a valid key, so when STP is
-   * enabled you must assign a unique per-trader key to every order (all orders
-   * sharing a key are treated as one participant and never cross each other).
+   * is the self-trade-prevention key. `0` means "no STP" (the order matches
+   * anything); a non-zero key groups orders into a participant whose orders
+   * never cross each other.
    */
   struct Order {
     OrderType type{OrderType::Limit};
@@ -116,7 +116,7 @@ public:
   struct AddResult {
     Result result{Result::Rejected};
     OrderIdx orderId{INVALID_ORDER}; ///< Resting order id, valid only when Resting.
-    Quantity remaining{};            ///< Unfilled quantity.
+    Quantity remaining{};            ///< Discarded (unfilled, unrested) quantity; 0 when Resting.
     Sequence seq{};                  ///< Sequence assigned to this order.
 
     /// @return true when the order (or its remainder) is resting.
@@ -232,6 +232,12 @@ public:
    * mutation, so an invalid replacement leaves the original order untouched.
    * The replacement is submitted as a fresh order and loses time priority.
    *
+   * The replacement's participant is ignored: the key is inherited from the
+   * original order, so a modify cannot change ownership. With STP, the
+   * replacement can still be cancelled by cancel-newest (if it would
+   * self-trade), which effectively cancels the order - the original is already
+   * removed.
+   *
    * @param id          Order id to replace (must be live; generation-checked).
    * @param replacement New order to submit (Limit + GTC, same side).
    * @param onFill      Fill sink for the replacement's matches.
@@ -243,12 +249,18 @@ public:
   AddResult modify(OrderIdx id, const Order &replacement, OnFill &&onFill = NoopFill{}) noexcept {
     const Sequence seq = nextSeq_++; // a modify consumes a sequence even if rejected
     if (!book_.isLive(id) || book_.sideOf(id) != replacement.side ||
-        replacement.type != OrderType::Limit || replacement.tif != TimeInForce::GTC ||
-        wouldReject(replacement)) {
+        replacement.type != OrderType::Limit || replacement.tif != TimeInForce::GTC) {
       return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq};
     }
+    Order repl = replacement;
+    if constexpr (kHasParticipants) {
+      repl.participant = book_.participantOf(id); // inherit ownership, before remove
+    }
+    if (wouldReject(repl)) {
+      return {Result::Rejected, INVALID_ORDER, repl.quantity, seq};
+    }
     (void)book_.remove(id); // id is live, so this succeeds
-    return addOrder(replacement, onFill); // the replacement gets its own sequence
+    return addOrder(repl, onFill); // the replacement gets its own sequence
   }
 
   /// Remove all orders and reset the engine (and sequence) to its empty state.
@@ -348,7 +360,7 @@ private:
     } else {
       Volume v = 0;
       for (OrderIdx id = book_.head(price, side); id != INVALID_ORDER; id = book_.nextOf(id)) {
-        if (book_.participantOf(id) != aggressor) {
+        if (aggressor == 0 || book_.participantOf(id) != aggressor) {
           v += book_.qty(id);
         }
       }
@@ -444,7 +456,7 @@ private:
     OrderIdx id = book_.head(price, side);
     while (remaining != 0) {
       if constexpr (kHasParticipants) {
-        while (id != INVALID_ORDER && book_.participantOf(id) == aggressor) {
+        while (id != INVALID_ORDER && aggressor != 0 && book_.participantOf(id) == aggressor) {
           skippedSelf = true;
           id = book_.nextOf(id);
         }

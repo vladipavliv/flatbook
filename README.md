@@ -59,6 +59,10 @@ case Engine::Result::Rejected:  /* nothing executed */
 }
 ```
 
+> For large books, `OrderBook` / `MatchingEngine` store their arrays inline and
+> can be several hundred KB - allocate them on the heap (or `static`), not the
+> stack.
+
 ### Order types
 
 An order is described by an `OrderType`, a `TimeInForce` and an optional `postOnly` flag.

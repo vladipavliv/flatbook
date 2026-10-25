@@ -929,5 +929,59 @@ TEST(OrderBook, StpSkipsSelfThenMatchesOtherAndCancelsNewest) {
   EXPECT_EQ(e.book().volume(100, StpEngine::Side::Sell), 5u);
 }
 
+TEST(OrderBook, StpParticipantZeroDisablesStp) {
+  StpEngine e;
+  std::vector<StpEngine::Fill> fills;
+
+  (void)e.addOrder({.type = StpEngine::OrderType::Limit,
+                    .tif = StpEngine::TimeInForce::GTC,
+                    .price = 100,
+                    .quantity = 5,
+                    .side = StpEngine::Side::Sell,
+                    .participant = 0},
+                   [&](const StpEngine::Fill &f) { fills.push_back(f); });
+
+  // participant 0 means "no STP": the buy crosses the sell despite the same key.
+  const auto r = e.addOrder({.type = StpEngine::OrderType::Limit,
+                             .tif = StpEngine::TimeInForce::GTC,
+                             .price = 100,
+                             .quantity = 5,
+                             .side = StpEngine::Side::Buy,
+                             .participant = 0},
+                            [&](const StpEngine::Fill &f) { fills.push_back(f); });
+
+  EXPECT_EQ(r.result, StpEngine::Result::Filled);
+  ASSERT_EQ(fills.size(), 1u);
+  EXPECT_EQ(e.openOrders(), 0u);
+}
+
+TEST(OrderBook, ModifyInheritsParticipant) {
+  StpEngine e;
+  std::vector<StpEngine::Fill> fills;
+
+  const auto a = e.addOrder({.type = StpEngine::OrderType::Limit,
+                             .tif = StpEngine::TimeInForce::GTC,
+                             .price = 100,
+                             .quantity = 5,
+                             .side = StpEngine::Side::Sell,
+                             .participant = 7},
+                            [&](const StpEngine::Fill &f) { fills.push_back(f); });
+  ASSERT_TRUE(a.resting());
+
+  // The replacement carries a different participant; modify must ignore it and
+  // inherit the original's key.
+  const auto r = e.modify(a.orderId,
+                          StpEngine::Order{.type = StpEngine::OrderType::Limit,
+                                           .tif = StpEngine::TimeInForce::GTC,
+                                           .price = 101,
+                                           .quantity = 5,
+                                           .side = StpEngine::Side::Sell,
+                                           .participant = 99},
+                          [&](const StpEngine::Fill &f) { fills.push_back(f); });
+
+  EXPECT_EQ(r.result, StpEngine::Result::Resting);
+  EXPECT_EQ(e.book().participantOf(r.orderId), 7u); // inherited, not 99
+}
+
 } // namespace
 } // namespace flatbook

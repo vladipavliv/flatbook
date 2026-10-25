@@ -43,7 +43,9 @@ concept OrderIdLike = std::regular<T> && requires(T &id) {
  *
  * @note `reduce()` (partial fill) is deliberately not part of this contract:
  * it is a trusted private operation granted to the engine through friendship,
- * not a public API of the book.
+ * not a public API of the book. A custom book must therefore friend
+ * MatchingEngine or expose an equivalent operation, otherwise the engine will
+ * fail to compile inside the template rather than at the concept.
  *
  * @tparam B Candidate order book type.
  */
