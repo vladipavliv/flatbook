@@ -1,6 +1,7 @@
 // Includes every public header. Used as a single translation unit for
 // clang-tidy / static analysis (no test or third-party headers).
 #include <flatbook/Bitmap.hpp>
+#include <flatbook/CircuitBreaker.hpp>
 #include <flatbook/Concepts.hpp>
 #include <flatbook/Id.hpp>
 #include <flatbook/IdPool.hpp>

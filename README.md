@@ -77,7 +77,8 @@ Run the examples in [`examples/`](examples/) (`example_basic`, `example_dispatch
 | LOBSTER market-data replay + book validator | ✅ (benchmark / validation tool) |
 | Python bindings (nanobind, numpy batch API) | ✅ |
 | Fuzzing (libFuzzer: engine, persistence, parser) | ✅ |
-| Sessions, auctions, circuit breakers | ❌ |
+| Circuit breakers / price band + volatility halt | ✅ (`CircuitBreaker`) |
+| Sessions, auctions | ❌ |
 | Stop / iceberg / hidden orders | ❌ |
 | Pro-rata or multi-priority matching | ❌ (price-time only) |
 | Amend that keeps time priority | ❌ (`modify` loses priority) |
@@ -213,11 +214,11 @@ Handy one-liners (see `dev.sh`):
 
 ## Documentation
 
-- [API.md](docs/API.md) — the public API surface and the internal/public boundary.
-- [SEMANTICS.md](docs/SEMANTICS.md) — edge-case behavior per order type / TIF, tied to tests.
-- [DESIGN.md](docs/DESIGN.md) — data structures, order ids, determinism, safety model.
-- [BENCHMARKS.md](docs/BENCHMARKS.md) — methodology, baselines, machine config.
-- [VALIDATION.md](docs/VALIDATION.md) — LOBSTER data format and how to validate the book.
+- [API.md](docs/API.md) - the public API surface and the internal/public boundary.
+- [SEMANTICS.md](docs/SEMANTICS.md) - edge-case behavior per order type / TIF, tied to tests.
+- [DESIGN.md](docs/DESIGN.md) - data structures, order ids, determinism, safety model.
+- [BENCHMARKS.md](docs/BENCHMARKS.md) - methodology, baselines, machine config.
+- [VALIDATION.md](docs/VALIDATION.md) - LOBSTER data format and how to validate the book.
 
 ## Versioning
 
