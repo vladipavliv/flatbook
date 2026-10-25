@@ -18,8 +18,7 @@ every reuse, so a stale id (old generation) never aliases the slot's current
 occupant.
 
 ```cpp
-using GenBook = flatbook::OrderBook<1 << 15, 1 << 10,
-                                    flatbook::GenerationalId<1 << 15, 24>>;
+using GenBook = OrderBook<1 << 15, 1 << 10, GenerationalId<1 << 15, 24>>;
 ```
 
 ### How it works

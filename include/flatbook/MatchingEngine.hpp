@@ -95,7 +95,8 @@ public:
     Price price{};
     Quantity quantity{};
     Side side{};
-    FLATBOOK_NO_UNIQUE_ADDRESS std::conditional_t<kHasParticipants, ParticipantType, NoParticipant> participant{};
+    FLATBOOK_NO_UNIQUE_ADDRESS std::conditional_t<kHasParticipants, ParticipantType, NoParticipant>
+        participant{};
   };
 
   /// Outcome of an order submission.
@@ -108,17 +109,17 @@ public:
 
   /// Why an order was rejected or cancelled (adds detail beyond `Result`).
   enum class Reason : std::uint8_t {
-    None,                     ///< No special reason (filled, resting, or a normal remainder discard).
-    InvalidQuantity,          ///< Zero quantity.
-    InvalidPostOnly,          ///< postOnly combined with market / non-GTC.
-    PriceOutOfWindow,         ///< Limit price outside the configured price window.
-    PostOnlyWouldCross,       ///< Post-only order would have crossed.
+    None,               ///< No special reason (filled, resting, or a normal remainder discard).
+    InvalidQuantity,    ///< Zero quantity.
+    InvalidPostOnly,    ///< postOnly combined with market / non-GTC.
+    PriceOutOfWindow,   ///< Limit price outside the configured price window.
+    PostOnlyWouldCross, ///< Post-only order would have crossed.
     FokInsufficientLiquidity, ///< Fill-or-kill could not fill entirely.
     BookFull,                 ///< No free order slot.
     StpCancelNewest,          ///< Remainder would self-trade (cancelled by cancel-newest STP).
     UnknownOrder,             ///< Cancel/modify referenced a stale or unknown order id.
     SideMismatch,             ///< Modify replacement side differs from the original.
-    UnsupportedModify,        ///< Modify replacement is market / non-GTC (only limit GTC replaceable).
+    UnsupportedModify, ///< Modify replacement is market / non-GTC (only limit GTC replaceable).
   };
 
   /**
@@ -128,8 +129,8 @@ public:
     OrderIdx orderId{}; ///< Resting order id (already recycled if fully filled).
     Price price{};      ///< Execution price (the resting order's price).
     Quantity quantity{};
-    Side side{};        ///< Resting order side.
-    Sequence seq{};     ///< Sequence of the aggressor order that caused this fill.
+    Side side{};    ///< Resting order side.
+    Sequence seq{}; ///< Sequence of the aggressor order that caused this fill.
   };
 
   /**
@@ -239,8 +240,8 @@ public:
 
   /// Outcome of a cancel request.
   struct CancelResult {
-    bool cancelled{false}; ///< true when the id was live and was removed.
-    Sequence seq{0};       ///< Sequence assigned to this cancel.
+    bool cancelled{false};       ///< true when the id was live and was removed.
+    Sequence seq{0};             ///< Sequence assigned to this cancel.
     Reason reason{Reason::None}; ///< UnknownOrder when the id was stale.
   };
 
@@ -285,7 +286,7 @@ public:
    * without crossing the opposite side.
    *
    * Replaying a market-data feed (ITCH/LOBSTER) must build the book exactly as
-   * the feed does — apply submissions, executions and cancellations by id — and
+   * the feed does - apply submissions, executions and cancellations by id - and
    * NOT match price-time (the feed already records the executions). This is the
    * feed-side primitive for that; it does not consume a sequence.
    *
@@ -326,7 +327,8 @@ public:
       return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq, Reason::UnknownOrder};
     }
     if (replacement.type != OrderType::Limit || replacement.tif != TimeInForce::GTC) {
-      return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq, Reason::UnsupportedModify};
+      return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq,
+              Reason::UnsupportedModify};
     }
     if (book_.sideOf(id) != replacement.side) {
       return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq, Reason::SideMismatch};
@@ -336,11 +338,10 @@ public:
       repl.participant = book_.participantOf(id); // inherit ownership, before remove
     }
     if (wouldReject(repl)) {
-      return {Result::Rejected, INVALID_ORDER, repl.quantity, seq, repl.quantity == 0
-                                                                     ? Reason::InvalidQuantity
-                                                                     : Reason::PriceOutOfWindow};
+      return {Result::Rejected, INVALID_ORDER, repl.quantity, seq,
+              repl.quantity == 0 ? Reason::InvalidQuantity : Reason::PriceOutOfWindow};
     }
-    (void)book_.remove(id); // id is live, so this succeeds
+    (void)book_.remove(id);        // id is live, so this succeeds
     return addOrder(repl, onFill); // the replacement gets its own sequence
   }
 
@@ -580,7 +581,8 @@ private:
     const Side restSide = order.side == Side::Buy ? Side::Sell : Side::Buy;
 
     walkCrossing(order, [&](Price price) {
-      return matchLevel(price, restSide, remaining, onFill, seq, aggressor, skippedSelf); // true = fully matched
+      return matchLevel(price, restSide, remaining, onFill, seq, aggressor,
+                        skippedSelf); // true = fully matched
     });
 
     return remaining;
@@ -622,8 +624,8 @@ private:
 
 private:
   // --- State ---
-  Book book_;            ///< the price-time order book
-  Sequence nextSeq_{1};  ///< next sequence number to assign
+  Book book_;           ///< the price-time order book
+  Sequence nextSeq_{1}; ///< next sequence number to assign
 };
 
 } // namespace flatbook

@@ -2,9 +2,9 @@
 
 ## Version bump rules
 
-- `0.x` — the minor version may break the API (`0.1.0` → `0.2.0`); a patch
+- `0.x` - the minor version may break the API (`0.1.0` → `0.2.0`); a patch
   (`0.1.0` → `0.1.1`) is a backward-compatible fix only.
-- `1.0.0` — freezes the public API.
+- `1.0.0` - freezes the public API.
 
 The version is declared in **three places** and must stay in sync (checked by
 `./dev.sh` in CI via `scripts/check_version.py`):
@@ -17,12 +17,12 @@ The version is declared in **three places** and must stay in sync (checked by
 
 1. `./dev.sh test` and `./dev.sh sanitize` green.
 2. `./dev.sh tsan` green.
-3. `./dev.sh headers` — every header self-contained.
-4. `./dev.sh tidy` — clang-tidy clean.
-5. `./dev.sh bench --refs --report` — regenerate `docs/BENCHMARKS.md` on a quiet,
+3. `./dev.sh headers` - every header self-contained.
+4. `./dev.sh tidy` - clang-tidy clean.
+5. `./dev.sh bench --refs --report` - regenerate `docs/BENCHMARKS.md` on a quiet,
    frequency-locked machine.
 6. Update the version in all three files (above) and run `scripts/check_version.py`.
-7. Update `CHANGELOG.md` — move `Unreleased` to a dated release, list all Added /
+7. Update `CHANGELOG.md` - move `Unreleased` to a dated release, list all Added /
    Changed / Breaking changes.
 8. Tag `vX.Y.Z` and push.
 

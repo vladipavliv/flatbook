@@ -6,7 +6,7 @@ Measured with Google Benchmark, GCC 15, `-O3` (add `-DFLATBOOK_NATIVE=ON` for
 > **Reproducibility note:** the numbers below are single-run medians or
 > medians-of-10, illustrative rather than a rigorous claim. They were measured
 > on one machine; for anything you publish, record the CPU model, OS, and fixed
-> CPU frequency (`performance` governor), and regenerate on a quiet machine —
+> CPU frequency (`performance` governor), and regenerate on a quiet machine -
 > CI runners are noisy and have no stable frequency.
 
 <!-- BENCHMARKS:REPORT -->

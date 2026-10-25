@@ -9,7 +9,7 @@ side, and expected/actual price and size.
 
 LOBSTER sample files (free) are at https://lobsterdata.com/info/DataSamples.php.
 Each sample contains a `*_message_1.csv` and a `*_orderbook_1.csv` (and `_2`,
-`_3`, … for more levels). The `.csv` extension is misleading — the files are
+`_3`, … for more levels). The `.csv` extension is misleading - the files are
 space-separated.
 
 ## Running

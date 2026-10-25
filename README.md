@@ -1,12 +1,12 @@
 # FlatBook - Deterministic Order Book
 
-A header-only, allocation-free order book and matching engine for C++20, built around direct-indexed arrays and a hierarchical bitmap.
+A header-only, allocation-free order book and matching engine for C++20, built
+around direct-indexed arrays and a hierarchical bitmap.
 
-No heap allocation, no exceptions, no locks on the per-order hot path - flat per-operation latency (best-bid/ask and insert/remove are O(1)) - plus an optional lock-free sharding layer.
-
-> The one cold exception: `rebase()` (an explicit window-shift) allocates a
-> vector of cancelled ids. It is off the hot path and can be compiled out with
-> `OrderBook<..., Rebaseable=false>`. Everything else in the core never allocates.
+On top of the core, FlatBook ships a sharded multi-symbol dispatcher, a
+deterministic journal with snapshot/restore and disk persistence for replay and
+recovery, LOBSTER market-data replay with a book validator, and Python bindings
+with a numpy batch API. Benchmarked against `std::map`, CppTrader and Liquibook.
 
 [![CI](https://github.com/vladipavliv/flatbook/actions/workflows/ci.yml/badge.svg)](https://github.com/vladipavliv/flatbook/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -70,7 +70,9 @@ Run the examples in [`examples/`](examples/) (`example_basic`, `example_dispatch
 | Deterministic sequence numbers + journal + snapshot/restore | ✅ |
 | Disk persistence (checkpoint + journal tail) | ✅ |
 | Multi-symbol dispatcher (lock-free sharding) | ✅ |
-| LOBSTER market-data replay | ✅ (benchmark tool) |
+| LOBSTER market-data replay + book validator | ✅ (benchmark / validation tool) |
+| Python bindings (nanobind, numpy batch API) | ✅ |
+| Fuzzing (libFuzzer: engine, persistence, parser) | ✅ |
 | Sessions, auctions, circuit breakers | ❌ |
 | Stop / iceberg / hidden orders | ❌ |
 | Pro-rata or multi-priority matching | ❌ (price-time only) |
@@ -82,7 +84,7 @@ Prices are logical `int64` ticks. The book maps them into a fixed-width window
 via `slot = price - base_`: slot 0 is `base_`, and the window spans
 `[base_, base_ + PriceLevels)`.
 
-- A limit price outside the window is **rejected** (`Result::Rejected`, `Reason::Invalid`).
+- A limit price outside the window is **rejected** (`Result::Rejected`, `Reason::PriceOutOfWindow`).
 - `rebase(newBase)` shifts the window so slot 0 == `newBase`; orders that fall
   outside the new window are cancelled and their ids returned.
 
@@ -107,8 +109,7 @@ occupant. Use it whenever ids escape a synchronous call - including the
 `MatchingDispatcher`, which requires it (`static_assert`).
 
 ```cpp
-using GenBook = flatbook::OrderBook<1 << 15, 1 << 10,
-                                    flatbook::GenerationalId<1 << 15, 24>>;
+using GenBook = OrderBook<1 << 15, 1 << 10, GenerationalId<1 << 15, 24>>;
 ```
 
 The matching engine is fully **deterministic**: a monotonic `Sequence` is stamped
@@ -119,6 +120,11 @@ persistence. See [docs/DESIGN.md](docs/DESIGN.md) for the full design and the
 safety model.
 
 ## Architecture
+
+The core hot path is allocation-free: no heap allocation, no exceptions, no
+locks per order, with O(1) best-bid/best-ask and insert/remove. The one cold
+exception is `rebase()` (an explicit window-shift), which allocates a vector of
+cancelled ids and can be compiled out with `OrderBook<..., Rebaseable=false>`.
 
 Three layers:
 

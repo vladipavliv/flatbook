@@ -10,10 +10,10 @@ no test, that is a bug in this document.
 |---|---|---|---|
 | Limit × GTC | match at/better | rests | `Resting` / `Filled` |
 | Limit × IOC | match | cancelled | `Filled` / `Cancelled` |
-| Limit × FOK | all-or-nothing | — | `Filled` / `Rejected` |
+| Limit × FOK | all-or-nothing | - | `Filled` / `Rejected` |
 | Market × GTC | match at best | cancelled (never rests) | `Filled` / `Cancelled` |
 | Market × IOC | match | cancelled | `Filled` / `Cancelled` |
-| Market × FOK | all-or-nothing | — | `Filled` / `Rejected` |
+| Market × FOK | all-or-nothing | - | `Filled` / `Rejected` |
 
 - Zero quantity → `Rejected`, reason `InvalidQuantity`
   (`TestOrderBook.RejectReasonCoverage`).
@@ -43,9 +43,9 @@ no test, that is a bug in this document.
   (`TestOrderBook.RejectReasonCoverage`).
 - `modify` is cancel-and-replace: the replacement must be Limit × GTC on the same
   side. It returns the replacement's `AddResult` with one of:
-  - `UnknownOrder` — stale id,
-  - `UnsupportedModify` — market / non-GTC replacement,
-  - `SideMismatch` — side differs from the original
+  - `UnknownOrder` - stale id,
+  - `UnsupportedModify` - market / non-GTC replacement,
+  - `SideMismatch` - side differs from the original
     (`TestOrderBook.RejectReasonCoverage`).
 - `modify` inherits the original order's participant.
 - `modify` **loses time priority**: the order is removed and re-added at the back
@@ -77,9 +77,9 @@ no test, that is a bug in this document.
 
 The API is split into validated and precondition-guarded parts:
 
-- **Validated** — always safe: `insert`, `addOrder`, `modify`, `cancelOrder`
+- **Validated** - always safe: `insert`, `addOrder`, `modify`, `cancelOrder`
   reject bad input with a `Reason`.
-- **Precondition-guarded** — assume a valid id / in-window price and are checked
+- **Precondition-guarded** - assume a valid id / in-window price and are checked
   with `assert()` only: `qty`, `priceOf`, `sideOf`, `participantOf`, `order`,
   `level`, `head`, `volume`, `nextOf`, `nextLevel` (on a price), `IdPool::release`,
   and the engine's `reduce`. Under `NDEBUG` (Release) these become unchecked and
