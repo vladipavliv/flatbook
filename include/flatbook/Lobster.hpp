@@ -308,10 +308,15 @@ public:
     switch (type) {
     case 1: { // submission: rest without matching
       ++stats_.submissions;
-      ensureWindow(price);
+      if (!ensureWindow(price)) {
+        ++stats_.skipped; // price too far even after a hysteresis step
+        break;
+      }
       const auto id = engine_.restOrder(price, size, buy ? Side::Buy : Side::Sell);
       if (id != Engine::INVALID_ORDER) {
         orders_.emplace(orderId, id);
+      } else {
+        ++stats_.skipped; // book full
       }
       break;
     }
@@ -377,13 +382,25 @@ private:
     }
   }
 
-  void ensureWindow(Price price) noexcept {
+  /// Move the window toward @p price by a bounded half-width step (hysteresis),
+  /// so a single far-away order does not snap the window and cancel the touch.
+  /// @return true when @p price is now inside the window.
+  bool ensureWindow(Price price) noexcept {
     if (engine_.isPriceInWindow(price)) {
-      return;
+      return true;
     }
-    const Price newBase = price - static_cast<Price>(Engine::kPriceLevels) / 2;
+    const Price width = static_cast<Price>(Engine::kPriceLevels);
+    const Price base = engine_.base();
+    const Price newBase = base + (price >= base ? width / 2 : -(width / 2));
     (void)engine_.rebase(newBase);
     ++stats_.rebases;
+    pruneRebased();
+    return engine_.isPriceInWindow(price);
+  }
+
+  /// Erase orders cancelled by the last rebase, counting them and remembering
+  /// their order ids so a later reference is reported as `rebasedAway`.
+  void pruneRebased() noexcept {
     for (auto it = orders_.begin(); it != orders_.end();) {
       if (engine_.book().isLive(it->second)) {
         ++it;

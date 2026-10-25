@@ -180,42 +180,59 @@ TEST(Lobster, FeedReplayRestsAndReducesById) {
   LobsterFeed<Engine> feed(e);
 
   // Submission rests without matching.
-  feed.message(1, 1, 10, 100, false); // sell 10 @ 100
+  feed.message(1, 1, 10, 50, false); // sell 10 @ 50
   EXPECT_EQ(e.openOrders(), 1u);
-  EXPECT_EQ(e.bestAsk(), 100);
+  EXPECT_EQ(e.bestAsk(), 50);
   EXPECT_EQ(e.bestBid(), Engine::INVALID_PRICE); // no buy side yet
 
-  // A buy at 100 would cross in matching, but the feed just rests it.
-  feed.message(1, 2, 5, 100, true);
+  // A buy at 50 would cross in matching, but the feed just rests it.
+  feed.message(1, 2, 5, 50, true);
   EXPECT_EQ(e.openOrders(), 2u);
-  EXPECT_EQ(e.bestBid(), 100);
-  EXPECT_EQ(e.book().volume(100, Side::Sell), 10u); // sell untouched
+  EXPECT_EQ(e.bestBid(), 50);
+  EXPECT_EQ(e.book().volume(50, Side::Sell), 10u); // sell untouched
 
   // Execution of 4 against order id 1.
-  feed.message(4, 1, 4, 100, false);
-  EXPECT_EQ(e.book().volume(100, Side::Sell), 6u);
+  feed.message(4, 1, 4, 50, false);
+  EXPECT_EQ(e.book().volume(50, Side::Sell), 6u);
 
   // Deletion of order id 2.
-  feed.message(3, 2, 0, 100, true);
+  feed.message(3, 2, 0, 50, true);
   EXPECT_EQ(e.openOrders(), 1u);
-  EXPECT_EQ(e.book().volume(100, Side::Buy), 0u);
+  EXPECT_EQ(e.book().volume(50, Side::Buy), 0u);
 }
 
-TEST(Lobster, FeedReplayCountsRebases) {
+TEST(Lobster, FeedReplayRebaseHysteresis) {
   Engine e; // window [0, 64)
   LobsterFeed<Engine> feed(e);
 
-  feed.message(1, 1, 10, 1000, true); // 1000 out of window -> rebase
+  // A price just above the window shifts it by half a width (not centered).
+  feed.message(1, 1, 10, 70, true);
   EXPECT_EQ(feed.stats().rebases, 1u);
+  EXPECT_EQ(e.base(), 32); // 0 + 64/2
+  EXPECT_EQ(e.openOrders(), 1u);
+  EXPECT_EQ(e.bestBid(), 70);
+
+  // A far price beyond one step is dropped, not snapped-to: the touch survives.
+  feed.message(1, 2, 5, 1000, false);
+  EXPECT_EQ(feed.stats().rebases, 2u);
+  EXPECT_EQ(feed.stats().skipped, 1u);
+  EXPECT_EQ(e.openOrders(), 1u);
+  EXPECT_EQ(e.bestBid(), 70);
+}
+
+TEST(Lobster, FeedReplayTracksRebaseCancellations) {
+  Engine e; // window [0, 64)
+  LobsterFeed<Engine> feed(e);
+
+  feed.message(1, 1, 10, 5, true);  // rests near the bottom of the window
   EXPECT_EQ(e.openOrders(), 1u);
 
-  // A far order on the other side -> rebase cancels order 1.
-  feed.message(1, 2, 5, 5000, false);
-  EXPECT_EQ(feed.stats().rebases, 2u);
+  // Push the window up by half a width: the bid at 5 falls out.
+  feed.message(1, 2, 5, 70, true);
   EXPECT_EQ(feed.stats().cancelledByRebase, 1u);
 
-  // A message referencing the rebase-cancelled order -> rebasedAway, not skipped.
-  feed.message(3, 1, 0, 1000, true);
+  // A later reference to the cancelled order is rebasedAway, not skipped.
+  feed.message(3, 1, 0, 5, true);
   EXPECT_EQ(feed.stats().rebasedAway, 1u);
   EXPECT_EQ(feed.stats().skipped, 0u);
 }
