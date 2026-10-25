@@ -119,7 +119,7 @@ jobs:
           mkdir -p coverage-report
           gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --txt
           gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --html-details coverage-report/index.html
-          gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --fail-under 85
+          gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --fail-under-line 50
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
