@@ -152,3 +152,26 @@ def test_matches_python_reference():
     np.testing.assert_array_equal(ask_s, ref_ask_s)
     np.testing.assert_array_equal(bid_p, ref_bid_p)
     np.testing.assert_array_equal(bid_s, ref_bid_s)
+
+
+def test_batch_fill_offsets():
+    e = fb.MatchingEngine("medium")
+    # Rest a sell 5 @ 100; the batch then crosses it partially, rests, and crosses again.
+    e.add_order(fb.LIMIT, fb.GTC, fb.SELL, 100, 5, 0)
+
+    n = 3
+    types = np.full(n, fb.LIMIT, dtype=np.uint8)
+    tifs = np.full(n, fb.GTC, dtype=np.uint8)
+    sides = np.full(n, fb.BUY, dtype=np.uint8)
+    prices = np.array([100, 99, 100], dtype=np.int64)
+    qty = np.array([2, 1, 3], dtype=np.uint32)
+    part = np.zeros(n, dtype=np.uint32)
+
+    r = e.add_orders(types, tifs, sides, prices, qty, part)
+
+    # order 0 (buy 2 @ 100) fills 1; order 1 (buy 1 @ 99) rests (0 fills);
+    # order 2 (buy 3 @ 100) fills 1.
+    np.testing.assert_array_equal(r["fill_offset"], np.array([0, 1, 1, 2], dtype=np.uint32))
+    np.testing.assert_array_equal(r["fill_price"], np.array([100, 100], dtype=np.int64))
+    np.testing.assert_array_equal(r["fill_qty"], np.array([2, 3], dtype=np.uint32))
+

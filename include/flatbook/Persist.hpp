@@ -468,6 +468,10 @@ bool saveToFile(const char *path, const typename Engine::Snapshot &snap,
  * The fuzzable core of `loadFromFile`: parses and validates the header, checksum,
  * snapshot and journal, and only then commits to @p engine. No file I/O.
  *
+ * On failure the engine is left in an unspecified state (it may be partially
+ * restored or replayed); a failed load is not a no-op, so the caller should
+ * discard the engine or load from a known-good checkpoint.
+ *
  * @return true on success; false on any format/checksum/config/journal error.
  */
 template <typename Engine>
