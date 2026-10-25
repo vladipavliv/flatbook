@@ -16,6 +16,8 @@ else()
     set(FLATBOOK_BUILD_BENCHMARKS_DEFAULT OFF)
 endif()
 option(FLATBOOK_BUILD_BENCHMARKS "Build benchmarks" ${FLATBOOK_BUILD_BENCHMARKS_DEFAULT})
+option(FLATBOOK_BUILD_EXAMPLES "Build examples" ${FLATBOOK_BUILD_BENCHMARKS_DEFAULT})
+option(FLATBOOK_BUILD_FUZZER "Build libFuzzer target (Clang only)" OFF)
 
 add_library(flatbook INTERFACE)
 add_library(flatbook::flatbook ALIAS flatbook)
@@ -41,6 +43,22 @@ endif()
 
 if(FLATBOOK_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
+endif()
+
+if(FLATBOOK_BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
+if(FLATBOOK_BUILD_FUZZER)
+    add_subdirectory(fuzz)
+endif()
+
+find_package(Doxygen QUIET)
+if(DOXYGEN_FOUND)
+    add_custom_target(doc
+        COMMAND ${DOXYGEN_EXECUTABLE} ${PROJECT_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+        COMMENT "Generating API reference with Doxygen")
 endif()
 
 # --- Install / find_package -------------------------------------------------

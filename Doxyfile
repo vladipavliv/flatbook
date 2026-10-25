@@ -1,0 +1,23 @@
+# Doxygen configuration for FlatBook's API reference.
+# Generate with:  doxygen Doxyfile
+
+PROJECT_NAME           = "FlatBook"
+PROJECT_NUMBER         = 0.1.0
+PROJECT_BRIEF          = "Header-only, allocation-free, deterministic order book and matching engine for C++20"
+
+OUTPUT_DIRECTORY       = docs/api
+INPUT                  = include/flatbook README.md
+FILE_PATTERNS          = *.hpp *.md
+RECURSIVE              = NO
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+
+GENERATE_LATEX         = NO
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO

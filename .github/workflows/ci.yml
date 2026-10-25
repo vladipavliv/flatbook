@@ -37,6 +37,10 @@ jobs:
             cxx: g++
             build_type: Debug
             flags: "-Wall -Wextra -Wconversion -fsanitize=thread -fno-omit-frame-pointer"
+          - name: gcc-werror
+            cxx: g++
+            build_type: Release
+            flags: "-Wall -Wextra -Wconversion -Werror"
 
     steps:
       - uses: actions/checkout@v4
@@ -115,9 +119,49 @@ jobs:
           mkdir -p coverage-report
           gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --txt
           gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --html-details coverage-report/index.html
+          gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --fail-under 85
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage-report/
+
+  fuzz:
+    name: clang-libfuzzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_BUILD_TYPE=Debug
+          -DFLATBOOK_BUILD_FUZZER=ON
+          -DFLATBOOK_BUILD_TESTS=OFF
+          -DFLATBOOK_BUILD_BENCHMARKS=OFF
+          -DFLATBOOK_BUILD_EXAMPLES=OFF
+
+      - name: Build
+        run: cmake --build build --target flatbook_fuzz -j
+
+      - name: Fuzz
+        run: ./build/fuzz/flatbook_fuzz -max_total_time=60 -timeout=2
+
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-tidy
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy
+
+      - name: Run clang-tidy
+        run: >
+          clang-tidy --header-filter='.*/include/flatbook/.*' --quiet
+          tools/all_headers.cpp -- -std=c++20 -Iinclude

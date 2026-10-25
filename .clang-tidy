@@ -1,0 +1,16 @@
+---
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  -bugprone-easily-swappable-parameters,
+  -performance-unnecessary-value-param,
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '.*/include/flatbook/.*'
+
+CheckOptions:
+  - key: performance-unnecessary-copy-initialization.allowed-types
+    value: 'Order;Fill;AddResult;CancelResult'

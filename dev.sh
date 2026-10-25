@@ -8,6 +8,8 @@ set -euo pipefail
 #   ./dev.sh test               # Release build + unit tests
 #   ./dev.sh sanitize           # Debug + ASan/UBSan + tests
 #   ./dev.sh tsan               # Debug + ThreadSanitizer + tests
+#   ./dev.sh fuzz [seconds]     # libFuzzer build + short fuzz run (Clang)
+#   ./dev.sh tidy               # clang-tidy over the library headers (Clang)
 #   ./dev.sh bench [--no-build] [--refs] # build + run benchmarks + plot docs/*.png
 #   ./dev.sh tail               # per-op latency percentiles (p50..p99.9/max)
 #   ./dev.sh all                # test + sanitize + bench
@@ -80,6 +82,29 @@ do_tsan() {
   "$TSAN_DIR/tests/flatbook_tests"
 }
 
+do_fuzz() {
+  local seconds="${1:-30}"
+  local fuzz_dir="${FUZZ_DIR:-$ROOT/build-fuzz}"
+  echo "== configure (Clang + libFuzzer) =="
+  cmake -S "$ROOT" -B "$fuzz_dir" \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DFLATBOOK_BUILD_FUZZER=ON \
+    -DFLATBOOK_BUILD_TESTS=OFF \
+    -DFLATBOOK_BUILD_BENCHMARKS=OFF \
+    -DFLATBOOK_BUILD_EXAMPLES=OFF
+  echo "== build =="
+  cmake --build "$fuzz_dir" --target flatbook_fuzz -j
+  echo "== fuzz ($seconds s) =="
+  "$fuzz_dir/fuzz/flatbook_fuzz" -max_total_time="$seconds" -timeout=2
+}
+
+do_tidy() {
+  echo "== clang-tidy =="
+  clang-tidy --header-filter='.*/include/flatbook/.*' --quiet \
+    "$ROOT/tools/all_headers.cpp" -- -std=c++20 -I"$ROOT/include"
+}
+
 do_bench() {
   local no_build=0 refs=0
   for arg in "$@"; do
@@ -149,6 +174,8 @@ case "$cmd" in
   tail)      do_tail ;;
   sanitize)  do_sanitize ;;
   tsan)      do_tsan ;;
+  fuzz)      do_fuzz "$@" ;;
+  tidy)      do_tidy ;;
   bench)     do_bench "$@" ;;
   all)       do_test; do_sanitize; do_bench ;;
   help|-h|--help) usage ;;
