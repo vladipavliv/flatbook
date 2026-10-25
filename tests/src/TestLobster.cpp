@@ -147,5 +147,77 @@ TEST(Lobster, MissingFileReturnsEmptyStats) {
   EXPECT_EQ(stats.submissions, 0u);
 }
 
+TEST(Lobster, ParseOrderbookLine) {
+  OrderbookLevel levels[4];
+  // Official LOBSTER orderbook sample: level 1 = (1186600 x 9484 / 118500 x 8800),
+  // level 2 = (118700 x 22700 / 118400 x 14930).
+  const auto n = parseOrderbookLine("1186600 9484 118500 8800 118700 22700 118400 14930",
+                                    levels, 4);
+  ASSERT_EQ(n, 2u);
+  EXPECT_EQ(levels[0].askPrice, 1186600);
+  EXPECT_EQ(levels[0].askSize, 9484u);
+  EXPECT_EQ(levels[0].bidPrice, 118500);
+  EXPECT_EQ(levels[0].bidSize, 8800u);
+  EXPECT_EQ(levels[1].askPrice, 118700);
+  EXPECT_EQ(levels[1].askSize, 22700u);
+  EXPECT_EQ(levels[1].bidPrice, 118400);
+  EXPECT_EQ(levels[1].bidSize, 14930u);
+}
+
+TEST(Lobster, ParseOrderbookLineDummyLevel) {
+  OrderbookLevel levels[2];
+  const auto n = parseOrderbookLine("9999999999 0 -9999999999 0", levels, 2);
+  ASSERT_EQ(n, 1u);
+  EXPECT_EQ(levels[0].askPrice, 9999999999LL);
+  EXPECT_EQ(levels[0].askSize, 0u);
+  EXPECT_EQ(levels[0].bidPrice, -9999999999LL);
+  EXPECT_EQ(levels[0].bidSize, 0u);
+}
+
+TEST(Lobster, FeedReplayRestsAndReducesById) {
+  Engine e;
+  LobsterFeed<Engine> feed(e);
+
+  // Submission rests without matching.
+  feed.message(1, 1, 10, 100, false); // sell 10 @ 100
+  EXPECT_EQ(e.openOrders(), 1u);
+  EXPECT_EQ(e.bestAsk(), 100);
+  EXPECT_EQ(e.bestBid(), Engine::INVALID_PRICE); // no buy side yet
+
+  // A buy at 100 would cross in matching, but the feed just rests it.
+  feed.message(1, 2, 5, 100, true);
+  EXPECT_EQ(e.openOrders(), 2u);
+  EXPECT_EQ(e.bestBid(), 100);
+  EXPECT_EQ(e.book().volume(100, Side::Sell), 10u); // sell untouched
+
+  // Execution of 4 against order id 1.
+  feed.message(4, 1, 4, 100, false);
+  EXPECT_EQ(e.book().volume(100, Side::Sell), 6u);
+
+  // Deletion of order id 2.
+  feed.message(3, 2, 0, 100, true);
+  EXPECT_EQ(e.openOrders(), 1u);
+  EXPECT_EQ(e.book().volume(100, Side::Buy), 0u);
+}
+
+TEST(Lobster, FeedReplayCountsRebases) {
+  Engine e; // window [0, 64)
+  LobsterFeed<Engine> feed(e);
+
+  feed.message(1, 1, 10, 1000, true); // 1000 out of window -> rebase
+  EXPECT_EQ(feed.stats().rebases, 1u);
+  EXPECT_EQ(e.openOrders(), 1u);
+
+  // A far order on the other side -> rebase cancels order 1.
+  feed.message(1, 2, 5, 5000, false);
+  EXPECT_EQ(feed.stats().rebases, 2u);
+  EXPECT_EQ(feed.stats().cancelledByRebase, 1u);
+
+  // A message referencing the rebase-cancelled order -> rebasedAway, not skipped.
+  feed.message(3, 1, 0, 1000, true);
+  EXPECT_EQ(feed.stats().rebasedAway, 1u);
+  EXPECT_EQ(feed.stats().skipped, 0u);
+}
+
 } // namespace
 } // namespace flatbook

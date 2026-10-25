@@ -5,6 +5,7 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "MatchingEngine.hpp"
@@ -13,14 +14,59 @@ namespace flatbook {
 
 /// Aggregate counters for a LOBSTER replay run.
 struct LobsterStats {
-  std::uint64_t lines{0};          ///< Total lines read.
-  std::uint64_t submissions{0};    ///< Type 1 (new limit order).
-  std::uint64_t partialCancels{0}; ///< Type 2 (partial cancel).
-  std::uint64_t deletions{0};      ///< Type 3 (full cancel).
-  std::uint64_t executions{0};     ///< Types 4/5 (visible/hidden execution).
-  std::uint64_t skipped{0};        ///< Cross/halt/unknown, or unknown order id.
-  std::uint64_t fills{0};          ///< Fills produced by the engine's matching.
+  std::uint64_t lines{0};            ///< Total lines read.
+  std::uint64_t submissions{0};      ///< Type 1 (new limit order).
+  std::uint64_t partialCancels{0};   ///< Type 2 (partial cancel).
+  std::uint64_t deletions{0};        ///< Type 3 (full cancel).
+  std::uint64_t executions{0};       ///< Types 4/5 (visible/hidden execution).
+  std::uint64_t skipped{0};          ///< Cross/halt/unknown, or unknown order id.
+  std::uint64_t fills{0};            ///< Fills produced by the engine's matching.
+  std::uint64_t rebases{0};          ///< Window shifts performed.
+  std::uint64_t cancelledByRebase{0}; ///< Orders cancelled because they left the window.
+  std::uint64_t rebasedAway{0};      ///< Messages referencing an order cancelled by rebase.
 };
+
+/// One level of a LOBSTER orderbook file: best ask and best bid at level i.
+struct OrderbookLevel {
+  std::int64_t askPrice{0};
+  std::uint32_t askSize{0};
+  std::int64_t bidPrice{0};
+  std::uint32_t bidSize{0};
+};
+
+/**
+ * @brief Parse one LOBSTER orderbook-file line into up to @p maxLevels levels.
+ *
+ * The orderbook file has 4 columns per level, ask first:
+ * `AskPrice AskSize BidPrice BidSize`, repeated for each requested level.
+ * Unoccupied levels use dummy values (ask `9999999999`, bid `-9999999999`,
+ * size 0). The line is whitespace-separated (the `.csv` extension is
+ * misleading).
+ *
+ * @return The number of levels actually parsed.
+ */
+inline std::size_t parseOrderbookLine(const char *line, OrderbookLevel *levels,
+                                      std::size_t maxLevels) noexcept {
+  std::size_t n = 0;
+  int offset = 0;
+  while (n < maxLevels) {
+    long long ap = 0;
+    long long bp = 0;
+    unsigned as = 0;
+    unsigned bs = 0;
+    int consumed = 0;
+    if (std::sscanf(line + offset, " %lld %u %lld %u %n", &ap, &as, &bp, &bs, &consumed) != 4) {
+      break;
+    }
+    levels[n].askPrice = static_cast<std::int64_t>(ap);
+    levels[n].askSize = static_cast<std::uint32_t>(as);
+    levels[n].bidPrice = static_cast<std::int64_t>(bp);
+    levels[n].bidSize = static_cast<std::uint32_t>(bs);
+    ++n;
+    offset += consumed;
+  }
+  return n;
+}
 
 /**
  * @brief LOBSTER order-message replay into a MatchingEngine.
@@ -231,5 +277,128 @@ LobsterStats replayLobsterFile(Engine &engine, const char *path,
   result.skipped += parseFailures;
   return result;
 }
+
+/**
+ * @brief Feed-driven LOBSTER replay: apply messages by id, with no matching.
+ *
+ * Unlike LobsterReplay (a throughput benchmark that feeds submissions through
+ * price-time matching), this builds the book *exactly* as the feed does:
+ * type 1 rests via MatchingEngine::restOrder, types 2/4/5 reduce a named order,
+ * type 3 cancels it. This is the mode needed to validate the book against the
+ * LOBSTER orderbook file, because the executions are recorded in the feed
+ * (types 4/5) rather than derived by crossing.
+ *
+ * The price window follows the stream via rebase; orders cancelled by a rebase
+ * are tracked so a later reference to one is counted as `rebasedAway` rather
+ * than silently `skipped`.
+ *
+ * @note Requires a book with GenerationalId ids (the order_id -> OrderIdx
+ * mapping must not alias reused slots).
+ */
+template <typename Engine>
+class LobsterFeed {
+public:
+  using OrderIdx = typename Engine::OrderIdx;
+  using Price = typename Engine::Price;
+  using Side = typename Engine::Side;
+
+  explicit LobsterFeed(Engine &engine) noexcept : engine_{engine} {}
+
+  void message(int type, std::uint64_t orderId, std::uint32_t size, Price price, bool buy) {
+    switch (type) {
+    case 1: { // submission: rest without matching
+      ++stats_.submissions;
+      ensureWindow(price);
+      const auto id = engine_.restOrder(price, size, buy ? Side::Buy : Side::Sell);
+      if (id != Engine::INVALID_ORDER) {
+        orders_.emplace(orderId, id);
+      }
+      break;
+    }
+    case 2: // partial cancel
+      ++stats_.partialCancels;
+      reduceById(orderId, size);
+      break;
+    case 3: // deletion
+      ++stats_.deletions;
+      cancelById(orderId);
+      break;
+    case 4:
+    case 5: // visible / hidden execution
+      ++stats_.executions;
+      reduceById(orderId, size);
+      break;
+    default: // cross trade, trading halt, unknown
+      ++stats_.skipped;
+      break;
+    }
+  }
+
+  [[nodiscard]] const LobsterStats &stats() const noexcept { return stats_; }
+
+private:
+  void reduceById(std::uint64_t orderId, std::uint32_t size) noexcept {
+    auto it = orders_.find(orderId);
+    if (it == orders_.end()) {
+      missing(orderId);
+      return;
+    }
+    const auto id = it->second;
+    if (!engine_.book().isLive(id)) {
+      orders_.erase(it);
+      ++stats_.skipped;
+      return;
+    }
+    const auto remaining = engine_.book().qty(id);
+    const auto qty = size < remaining ? size : remaining;
+    (void)engine_.reduce(id, qty);
+    if (!engine_.book().isLive(id)) {
+      orders_.erase(it);
+    }
+  }
+
+  void cancelById(std::uint64_t orderId) noexcept {
+    auto it = orders_.find(orderId);
+    if (it == orders_.end()) {
+      missing(orderId);
+      return;
+    }
+    (void)engine_.cancelOrder(it->second);
+    orders_.erase(it);
+  }
+
+  /// An order id referenced by the stream but not in the live map: distinguish
+  /// "cancelled by a rebase" from "never known".
+  void missing(std::uint64_t orderId) noexcept {
+    if (rebasedAway_.count(orderId) != 0) {
+      ++stats_.rebasedAway;
+    } else {
+      ++stats_.skipped;
+    }
+  }
+
+  void ensureWindow(Price price) noexcept {
+    if (engine_.isPriceInWindow(price)) {
+      return;
+    }
+    const Price newBase = price - static_cast<Price>(Engine::kPriceLevels) / 2;
+    (void)engine_.rebase(newBase);
+    ++stats_.rebases;
+    for (auto it = orders_.begin(); it != orders_.end();) {
+      if (engine_.book().isLive(it->second)) {
+        ++it;
+      } else {
+        ++stats_.cancelledByRebase;
+        rebasedAway_.insert(it->first);
+        it = orders_.erase(it);
+      }
+    }
+  }
+
+  Engine &engine_;
+  std::unordered_map<std::uint64_t, OrderIdx> orders_;
+  std::unordered_set<std::uint64_t> rebasedAway_;
+  LobsterStats stats_{};
+};
 
 } // namespace flatbook
