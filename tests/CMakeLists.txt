@@ -20,6 +20,7 @@ add_executable(flatbook_tests
     src/TestPersist.cpp
     src/TestProperty.cpp
     src/TestSpsc.cpp
+    src/TestWait.cpp
 )
 
 target_link_libraries(flatbook_tests

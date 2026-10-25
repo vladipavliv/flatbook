@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <cstdint>
 #include <vector>
 
@@ -111,6 +112,37 @@ TEST(Lobster, ReplayRebasesWindowToFollowPrice) {
   EXPECT_EQ(e.base(), 5000 - static_cast<Engine::Price>(Engine::kPriceLevels) / 2);
   EXPECT_EQ(e.bestAsk(), 5000);
   EXPECT_EQ(e.openOrders(), 1u); // the far bid was cancelled by the rebase
+}
+
+TEST(Lobster, ReplayFileCountsLinesAndParseFailures) {
+  const char *path = "lobster_replay_test.csv";
+  {
+    std::FILE *f = std::fopen(path, "w");
+    ASSERT_NE(f, nullptr);
+    std::fprintf(f, "1.0 1 1 10 100 1\n");
+    std::fprintf(f, "2.0 3 1 0 100 1\n");  // delete id 1
+    std::fprintf(f, "3.0 1 2 5 101 -1\n"); // submit id 2
+    std::fprintf(f, "garbage line\n");     // parse failure -> skipped
+    std::fclose(f);
+  }
+
+  Engine e;
+  const auto stats = replayLobsterFile(e, path);
+  std::remove(path);
+
+  EXPECT_EQ(stats.lines, 4u);
+  EXPECT_EQ(stats.submissions, 2u);
+  EXPECT_EQ(stats.deletions, 1u);
+  EXPECT_EQ(stats.skipped, 1u); // the garbage line
+  EXPECT_EQ(e.openOrders(), 1u); // only id 2 (sell @ 101) rests
+  EXPECT_EQ(e.bestAsk(), 101);
+}
+
+TEST(Lobster, MissingFileReturnsEmptyStats) {
+  Engine e;
+  const auto stats = replayLobsterFile(e, "lobster_does_not_exist.csv");
+  EXPECT_EQ(stats.lines, 0u);
+  EXPECT_EQ(stats.submissions, 0u);
 }
 
 } // namespace

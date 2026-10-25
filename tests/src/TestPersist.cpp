@@ -230,5 +230,59 @@ TEST(Persist, WideParticipantRoundTrips) {
   std::remove(path);
 }
 
+TEST(Persist, BadMagicRejected) {
+  const char *path = "flatbook_persist_badmagic.bin";
+  {
+    std::FILE *f = std::fopen(path, "wb");
+    ASSERT_NE(f, nullptr);
+    const std::uint32_t bad = 0x12345678;
+    ASSERT_EQ(std::fwrite(&bad, 1, sizeof(bad), f), sizeof(bad));
+    std::fclose(f);
+  }
+  Engine e;
+  EXPECT_FALSE(loadFromFile(path, e));
+  std::remove(path);
+}
+
+TEST(Persist, TruncatedHeaderRejected) {
+  const char *path = "flatbook_persist_trunc.bin";
+  {
+    std::FILE *f = std::fopen(path, "wb");
+    ASSERT_NE(f, nullptr);
+    // "FLBK" magic + one byte of the version field, then nothing: the header
+    // is incomplete, so load must fail cleanly.
+    const std::uint8_t junk[] = {0x46, 0x4C, 0x42, 0x4B, 0x01};
+    ASSERT_EQ(std::fwrite(junk, 1, sizeof(junk), f), sizeof(junk));
+    std::fclose(f);
+  }
+  Engine e;
+  EXPECT_FALSE(loadFromFile(path, e));
+  std::remove(path);
+}
+
+TEST(Persist, LoadDoesNotTouchEngineOnFailure) {
+  const char *path = "flatbook_persist_badmagic2.bin";
+  {
+    std::FILE *f = std::fopen(path, "wb");
+    ASSERT_NE(f, nullptr);
+    const std::uint32_t bad = 0xDEADBEEF;
+    ASSERT_EQ(std::fwrite(&bad, 1, sizeof(bad), f), sizeof(bad));
+    std::fclose(f);
+  }
+  Engine e;
+  Engine::Order o{};
+  o.type = Engine::OrderType::Limit;
+  o.tif = Engine::TimeInForce::GTC;
+  o.price = 10;
+  o.quantity = 1;
+  o.side = Engine::Side::Buy;
+  (void)e.addOrder(o);
+  const auto before = e.openOrders();
+
+  EXPECT_FALSE(loadFromFile(path, e));
+  EXPECT_EQ(e.openOrders(), before); // engine untouched on a bad file
+  std::remove(path);
+}
+
 } // namespace
 } // namespace flatbook

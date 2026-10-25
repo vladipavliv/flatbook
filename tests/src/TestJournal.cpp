@@ -158,5 +158,26 @@ TEST(Journal, EmptyJournalReplaysToEmptyEngine) {
   expectSameState(a, replay);
 }
 
+TEST(Journal, ClearAndSize) {
+  Engine a;
+  Journal<Engine> journal;
+  std::vector<OrderIdx> live;
+  std::mt19937_64 rng(0xDEAD);
+  Price base = 0;
+
+  EXPECT_TRUE(journal.empty());
+  EXPECT_EQ(journal.size(), 0u);
+
+  runOps(a, journal, live, rng, base, 100);
+
+  EXPECT_FALSE(journal.empty());
+  EXPECT_GT(journal.size(), 0u);
+  EXPECT_EQ(journal.entries().size(), journal.size());
+
+  journal.clear();
+  EXPECT_TRUE(journal.empty());
+  EXPECT_EQ(journal.size(), 0u);
+}
+
 } // namespace
 } // namespace flatbook
