@@ -161,9 +161,12 @@ def main():
     benchmarks = load(path)
     rows = collect(benchmarks)
 
-    plot_workload(rows, "add", "addOrder latency vs price range (FlatBook vs std::map)",
+    has_map = any(r[1] == "std::map" for r in rows)
+    suffix = " vs std::map" if has_map else ""
+
+    plot_workload(rows, "add", f"addOrder latency vs price range (FlatBook{suffix})",
                   out_dir / "add_vs_price_levels.png")
-    plot_workload(rows, "rest", "Resting-only add vs price range (FlatBook vs std::map)",
+    plot_workload(rows, "rest", f"Resting-only add vs price range (FlatBook{suffix})",
                   out_dir / "rest_vs_price_levels.png", kinds={"FlatBook", "std::map"})
     plot_workload(rows, "cancel", f"add/cancel mix ({CANCEL_RATE}% cancel) vs price range",
                   out_dir / "cancel_vs_price_levels.png")
