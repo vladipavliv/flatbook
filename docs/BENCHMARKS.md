@@ -6,8 +6,15 @@ Measured with Google Benchmark, GCC 15, `-O3` (add `-DFLATBOOK_NATIVE=ON` for
 > **Reproducibility note:** the numbers below are single-run medians or
 > medians-of-10, illustrative rather than a rigorous claim. They were measured
 > on one machine; for anything you publish, record the CPU model, OS, and fixed
-> CPU frequency (`performance` governor), and regenerate on a quiet machine -
+> CPU frequency (`performance` governor), and regenerate on a quiet machine —
 > CI runners are noisy and have no stable frequency.
+
+<!-- BENCHMARKS:REPORT -->
+<!-- Regenerate with: ./dev.sh bench --report -->
+- CPU: (run `./dev.sh bench --report`)
+- OS: (run `./dev.sh bench --report`)
+- Compiler: (run `./dev.sh bench --report`)
+<!-- BENCHMARKS:REPORT -->
 
 The benchmark sweeps three book configurations and two price-generation modes
 (see `benchmarks/`):
@@ -183,3 +190,31 @@ python3 benchmarks/plot/plot_scaling.py /tmp/bench.json docs
 Writes `docs/add_vs_price_levels.png`, `docs/rest_vs_price_levels.png`,
 `docs/cancel_vs_price_levels.png`, `docs/cpptrader_vs_price_levels.png` and
 `docs/order_type.png`.
+
+## Limitations of these numbers
+
+- **Synthetic flow.** Prices are drawn from a uniform or clustered distribution,
+  not a real day's LOBSTER/ITCH stream; the adversarial wide-range pattern is
+  intentionally hard for flat arrays, the clustered one intentionally easy.
+- **Single thread, single core.** The latency numbers are one thread on one
+  core; they say nothing about multi-symbol throughput or contention.
+- **No frequency lock guarantee.** `./dev.sh tail` warns when the governor is
+  not `performance` or turbo is enabled, but it cannot force a fixed frequency
+  without root.
+- **TSC floor.** Even after subtracting the empty-measurement baseline, the
+  ~10 ns p50 for a pure rest is within a few nanoseconds of the timer itself;
+  treat differences below ~10 ns as noise.
+- **Baselines are containers, not full matchers.** `std::map` and CppTrader
+  baselines maintain levels but do not match (no crossing, no order types, no
+  STP); the comparison is on the resting-only path, which is where their data
+  structures differ. See the next section for real matchers.
+- **CI is noisy.** Regenerate on a quiet, dedicated machine before publishing.
+
+## Real matchers
+
+FlatBook is a matching engine, so the honest comparison is against other
+matching engines on an identical order stream with identical validity checks.
+That comparison (liquibook and friends) is in progress; until it lands, the
+CppTrader / std::map baselines above only show the container-level difference
+and should not be read as "FlatBook vs a full matcher".
+

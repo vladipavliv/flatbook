@@ -106,11 +106,12 @@ do_tidy() {
 }
 
 do_bench() {
-  local no_build=0 refs=0
+  local no_build=0 refs=0 report=0
   for arg in "$@"; do
     case "$arg" in
       --no-build) no_build=1 ;;
       --refs) refs=1 ;;
+      --report) report=1 ;;
     esac
   done
 
@@ -145,6 +146,12 @@ do_bench() {
   echo "== plot =="
   mkdir -p "$OUT_DIR"
   "$PYTHON" "$PLOT" "${TMPDIR:-/tmp}/flatbook_bench.json" "$OUT_DIR"
+
+  if [[ $report -eq 1 ]]; then
+    echo "== report =="
+    "$PYTHON" "$ROOT/benchmarks/plot/make_report.py" \
+      "${TMPDIR:-/tmp}/flatbook_bench.json" "$ROOT/docs/BENCHMARKS.md"
+  fi
 
   if [[ $refs -eq 1 ]]; then
     echo "done: $OUT_DIR/{add,rest,cancel,cpptrader}_vs_price_levels.png, $OUT_DIR/order_type.png"
