@@ -1,10 +1,12 @@
 #pragma once
 
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #if defined(__linux__)
@@ -46,9 +48,10 @@ struct MatchingConfig {
  * both of which break the flat-latency guarantee. Load balancing is a
  * deployment-level concern (static partitioning or multiple instances).
  *
- * @note The `SymbolCount` engines live in a single heap allocation
- * (`std::unique_ptr<TickerSlot[]>`), so the dispatcher object itself is small
- * and can live on the stack.
+ * @note The `SymbolCount` engines and their worker assignment live in two
+ * separate heap allocations (kept apart to avoid false sharing between the
+ * ingress's worker-id reads and the workers' book writes), so the dispatcher
+ * object itself is small and can live on the stack.
  *
  * @tparam SymbolCount  Number of symbols (ticker ids 0..SymbolCount-1).
  * @tparam Book         Order book type (see @ref OrderBook).
@@ -79,15 +82,16 @@ public:
   explicit MatchingDispatcher(MatchingConfig config, Callback onEvent)
       : workerCores_{std::move(config.workerCores)}, realTime_{config.realTime},
         onEvent_{std::move(onEvent)} {
-    symbols_ = std::make_unique<TickerSlot[]>(SymbolCount);
-    const size_t workerCount = config.workerCores.empty() ? 1 : config.workerCores.size();
+    workerOf_ = std::make_unique<uint32_t[]>(SymbolCount);
+    books_ = std::make_unique<Engine[]>(SymbolCount);
+    const size_t workerCount = workerCores_.empty() ? 1 : workerCores_.size();
     workers_.reserve(workerCount);
     for (size_t i = 0; i < workerCount; ++i) {
       workers_.emplace_back(std::make_unique<Worker>(i));
     }
     // Fixed round-robin symbol -> worker assignment (rerouting is a later step).
     for (size_t s = 0; s < SymbolCount; ++s) {
-      symbols_[s].workerId = static_cast<uint32_t>(s % workerCount);
+      workerOf_[s] = static_cast<uint32_t>(s % workerCount);
     }
   }
 
@@ -171,18 +175,19 @@ public:
     post(symbolIdx, cmd);
   }
 
+  /// @return Number of worker threads.
+  [[nodiscard]]
+  size_t workerCount() const noexcept {
+    return workers_.size();
+  }
+
   /// @return Read-only access to a symbol's engine (e.g. for assertions/tests).
   [[nodiscard]]
   const Engine &engine(uint32_t symbolIdx) const noexcept {
-    return symbols_[symbolIdx].book;
+    return books_[symbolIdx];
   }
 
 private:
-  struct TickerSlot {
-    uint32_t workerId{0};
-    Engine book{};
-  };
-
   struct Command {
     enum class Kind : uint8_t { Add, Cancel, Modify };
     Kind kind{Kind::Add};
@@ -201,14 +206,15 @@ private:
   };
 
   void post(uint32_t symbolIdx, const Command &cmd) {
-    Worker &w = *workers_[symbols_[symbolIdx].workerId];
+    assert(symbolIdx < SymbolCount);
+    Worker &w = *workers_[workerOf_[symbolIdx]];
     while (!w.input.write(cmd)) {
       std::this_thread::yield();
     }
   }
 
   void process(Worker &w, const Command &cmd) {
-    Engine &book = symbols_[cmd.symbolIdx].book;
+    Engine &book = books_[cmd.symbolIdx];
     switch (cmd.kind) {
     case Command::Kind::Add: {
       const auto result = book.addOrder(cmd.order, [&](const Fill &f) { pushFill(w, cmd.symbolIdx, f); });
@@ -262,7 +268,11 @@ private:
           process(w, cmd);
         } while (w.input.read(cmd));
       } else if (w.stop.load(std::memory_order_acquire)) {
-        break; // input drained AND stop requested
+        // stop is set after the last post; drain anything that raced in.
+        while (w.input.read(cmd)) {
+          process(w, cmd);
+        }
+        break;
       } else {
         std::this_thread::yield();
       }
@@ -317,7 +327,8 @@ private:
   std::vector<uint32_t> workerCores_;
   bool realTime_{false};
   Callback onEvent_;
-  std::unique_ptr<TickerSlot[]> symbols_;
+  std::unique_ptr<uint32_t[]> workerOf_;
+  std::unique_ptr<Engine[]> books_;
   std::vector<std::unique_ptr<Worker>> workers_;
   std::thread collector_;
   std::atomic<bool> stop_{false};

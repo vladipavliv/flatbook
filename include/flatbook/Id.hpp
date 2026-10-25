@@ -35,8 +35,9 @@ public:
 
   constexpr RawId() noexcept = default;
 
-  /// Implicit from the raw index: lets RawId act like the index for sentinels.
-  constexpr RawId(Index value) noexcept : value_(value) {}
+  /// Explicit from the raw index, mirroring GenerationalId: an int is never
+  /// silently accepted where an order id is expected.
+  explicit constexpr RawId(Index value) noexcept : value_(value) {}
 
   /// @return The raw slot index (array subscript).
   [[nodiscard]] constexpr Index index() const noexcept { return value_; }

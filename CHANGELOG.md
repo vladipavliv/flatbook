@@ -23,7 +23,12 @@ Initial development. No stable release yet.
   (cancel-newest), cancel/modify, monotonic sequence numbers and fill callbacks.
 - `RawId` / `GenerationalId` (ABA protection) and `IdPool`.
 - C++20 concepts `OrderIdLike` and `OrderBookLike`.
+- `SpscQueue`: lock-free single-producer/single-consumer byte-stream ring with
+  cached head/tail indices and batched read/write.
+- `MatchingDispatcher`: sharded multi-symbol matching across worker threads
+  (single ingress, single collector) with add/cancel/modify.
 - Test suite: unit, container, engine, property and invariant-fuzz tests
-  (102 tests), run under ASan/UBSan.
-- CI matrix: GCC, Clang, Clang + libc++, MSVC, and coverage.
-- Benchmarks against a `std::map` baseline with latency-vs-price-range plots.
+  (110 tests), run under ASan/UBSan and TSan.
+- CI matrix: GCC, Clang, Clang + libc++, MSVC, TSan, and coverage.
+- Benchmarks against a `std::map` baseline with latency-vs-price-range plots,
+  plus per-op tail-latency percentiles and a dispatcher throughput/scaling bench.

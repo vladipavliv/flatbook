@@ -20,6 +20,9 @@ option(FLATBOOK_BUILD_BENCHMARKS "Build benchmarks" ${FLATBOOK_BUILD_BENCHMARKS_
 add_library(flatbook INTERFACE)
 add_library(flatbook::flatbook ALIAS flatbook)
 
+find_package(Threads REQUIRED)
+target_link_libraries(flatbook INTERFACE Threads::Threads)
+
 target_include_directories(flatbook
     INTERFACE
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>

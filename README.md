@@ -1,17 +1,17 @@
 # FlatBook - Deterministic Order Book
 
 A header-only, allocation-free order book for C++23, built around direct-indexed arrays and a hierarchical bitmap.
-No heap allocation, no exceptions, no locks - single-threaded, with flat per-operation latency (best-bid/ask and insert/remove are O(1)).
+No heap allocation, no exceptions, no locks in the core - with flat per-operation latency (best-bid/ask and insert/remove are O(1)) - plus an optional lock-free sharding layer.
 
 [![CI](https://github.com/vladipavliv/flatbook/actions/workflows/ci.yml/badge.svg)](https://github.com/vladipavliv/flatbook/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Standard: C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue.svg)]()
 [![Header-only](https://img.shields.io/badge/header--only-ff69b4.svg)]()
 
-> **Single-threaded by design.** FlatBook has no locks, no atomics and no
-> internal synchronization. It is meant to be pinned to one thread and fed a
-> serialized order stream. Concurrent access is out of scope by design - if you
-> need concurrency, run one book per shard/thread and aggregate upstream.
+> **Core is single-threaded by design.** `OrderBook` and `MatchingEngine` have
+> no locks, no atomics and no internal synchronization - pin one to a thread and
+> feed it a serialized order stream. `MatchingDispatcher` (see below) shards
+> `SymbolCount` engines across worker threads with lock-free SPSC queues.
 
 ## Why
 
@@ -39,7 +39,7 @@ using Engine = flatbook::MatchingEngine<Book>;
 
 Engine engine;
 
-engine.addOrder({
+(void)engine.addOrder({
     .type     = Engine::OrderType::Limit,
     .tif      = Engine::TimeInForce::GTC,
     .postOnly = false,
@@ -132,13 +132,11 @@ The lock-free queue backing the dispatcher is `SpscQueue`
 (`include/flatbook/SpscQueue.hpp`): a bounded byte-stream SPSC ring with cached
 head/tail indices and batched read/write.
 
-**Throughput.** End-to-end the dispatcher moves ~17.9M orders/s (mixed-crossing,
-256 symbols; `flatbook_dispatcher_bench`). That is about 2× the raw engine's
-per-order cost (~57 ns vs ~27 ns) - the price of routing through the ingress,
-two SPSC hops and the collector. Adding workers does not raise this rate on a
-light mixed-crossing workload: the single ingress and collector threads, not
-the matching workers, are the bottleneck. The worker count buys parallelism for
-heavier per-order work (deep books), not more submit/drain bandwidth.
+**Throughput.** End-to-end the dispatcher moves ~18M orders/s with one worker
+(mixed-crossing, 256 symbols; `flatbook_dispatcher_bench`) and scales
+near-linearly with the worker count: ~2.2× at 2 workers, ~4.3× at 4, saturating
+around the core count at 8. The single ingress and collector threads bound how
+far it scales, but the matching workers are the part that parallelizes.
 
 ## Order ids: ABA-safe handles with generation
 
@@ -169,13 +167,13 @@ using GenBook = flatbook::OrderBook<1 << 15, 1 << 10,
 | Id type | `Node` (32K/1K) | `Node` (131K/16K) | order id |
 |---|---|---|---|
 | `RawId` (default) | 12 B | 16 B | 2 / 4 B |
-| `GenerationalId` (default 24 gen bits) | 16 B | 20 B | 8 B |
+| `GenerationalId` (default 32 gen bits) | 16 B | 20 B | 8 B |
 
 You pay +4 bytes per slot (the generation counter) only when you actually ask for ABA protection.
 
 ### Why plain LIFO + a wide generation
 
-LIFO recycling is deliberate: it reuses the most recently freed slots, keeping the hot working set in cache. Its only downside is that those same hot slots get their generation bumped fastest, so a narrow counter would wrap sooner. Rather than slow that down - a LIFO→FIFO hybrid adds a branch on the hot path to work around a problem you can instead avoid - the counter is simply made wide: `GenerationalId` defaults to **24 generation bits ≈ 16.7M reuses per slot** before wrapping, and the width is a template parameter you can raise.
+LIFO recycling is deliberate: it reuses the most recently freed slots, keeping the hot working set in cache. Its only downside is that those same hot slots get their generation bumped fastest, so a narrow counter would wrap sooner. Rather than slow that down - a LIFO→FIFO hybrid adds a branch on the hot path to work around a problem you can instead avoid - the counter is simply made wide: `GenerationalId` defaults to **32 generation bits ≈ 4.3B reuses per slot** before wrapping, and the width is a template parameter you can raise.
 
 ## Design
 

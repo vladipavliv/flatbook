@@ -117,5 +117,33 @@ TEST(SpscQueue, ThreadedProducerConsumer) {
   }
 }
 
+TEST(SpscQueue, BatchWrapAround) {
+  SpscQueue<1> q; // 64-byte buffer, so batches cycle the ring many times
+  int value = 0;
+  int expected = 0;
+  for (int round = 0; round < 200; ++round) {
+    int src[6]; // 24 bytes, not a multiple of 64
+    for (int i = 0; i < 6; ++i) {
+      src[i] = value++;
+    }
+
+    size_t written = 0;
+    while (written < 6) {
+      written += q.writeBatch(src + written, 6 - written);
+    }
+
+    int dst[6] = {};
+    size_t read = 0;
+    while (read < 6) {
+      read += q.readBatch(dst + read, 6 - read);
+    }
+
+    for (int i = 0; i < 6; ++i) {
+      EXPECT_EQ(dst[i], expected++);
+    }
+  }
+  EXPECT_TRUE(q.empty());
+}
+
 } // namespace
 } // namespace flatbook

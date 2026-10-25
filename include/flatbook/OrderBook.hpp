@@ -93,9 +93,9 @@ public:
     PriceIdx price{}; ///< Price level index.
     Side side{};      ///< Side of the level this order rests in.
     // Per-order generation for ABA protection; zero-size for non-generational ids.
-    [[no_unique_address]] std::conditional_t<Id::kHasGeneration, std::uint32_t, NoGeneration> gen{};
+    FLATBOOK_NO_UNIQUE_ADDRESS std::conditional_t<Id::kHasGeneration, std::uint32_t, NoGeneration> gen{};
     // Per-order participant key for STP; zero-size when disabled.
-    [[no_unique_address]] std::conditional_t<kHasParticipants, ParticipantType, NoParticipant>
+    FLATBOOK_NO_UNIQUE_ADDRESS std::conditional_t<kHasParticipants, ParticipantType, NoParticipant>
         participant{};
   };
 

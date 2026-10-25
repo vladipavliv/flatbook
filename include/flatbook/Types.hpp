@@ -4,6 +4,14 @@
 #include <limits>
 #include <type_traits>
 
+// MSVC needs the vendor spelling for [[no_unique_address]] to get zero-size
+// empty members; GCC/Clang use the standard attribute.
+#if defined(_MSC_VER) && !defined(__clang__)
+#define FLATBOOK_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
+#else
+#define FLATBOOK_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#endif
+
 namespace flatbook {
 
 /// Order quantity type (per-order).

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <random>
 #include <vector>
@@ -223,6 +224,35 @@ TEST(MatchingDispatcher, CancelModifyMatchReference) {
       EXPECT_EQ(cancels[s][i], refCancels[s][i]);
     }
   }
+}
+
+TEST(MatchingDispatcher, UsesConfiguredWorkerCount) {
+  MatchingConfig config;
+  config.workerCores = {0, 1, 2, 3};
+  MatchingDispatcher<4, Book> dispatcher(config, [](const auto &) {});
+  EXPECT_EQ(dispatcher.workerCount(), 4u);
+}
+
+TEST(MatchingDispatcher, StopDrainsPendingOrders) {
+  constexpr size_t kOrders = 100000;
+  MatchingConfig config;
+  config.workerCores = {0, 1, 2, 3};
+
+  std::atomic<size_t> results{0};
+  MatchingDispatcher<16, Book> dispatcher(config, [&](const MatchingDispatcher<16, Book>::Event &ev) {
+    if (ev.kind == MatchingDispatcher<16, Book>::Event::Kind::Result) {
+      results.fetch_add(1, std::memory_order_relaxed);
+    }
+  });
+
+  dispatcher.start();
+  std::mt19937_64 rng(1);
+  for (size_t i = 0; i < kOrders; ++i) {
+    dispatcher.addOrder(static_cast<uint32_t>(rng() % 16), makeOrder(rng));
+  }
+  dispatcher.stop();
+
+  EXPECT_EQ(results.load(std::memory_order_relaxed), kOrders);
 }
 
 } // namespace

@@ -5,6 +5,7 @@
 #include <limits>
 
 #include "Concepts.hpp"
+#include "Id.hpp"
 #include "OrderBook.hpp"
 #include "Types.hpp"
 
@@ -87,7 +88,7 @@ public:
     PriceIdx price{};
     Quantity quantity{};
     Side side{};
-    [[no_unique_address]] std::conditional_t<kHasParticipants, ParticipantType, NoParticipant> participant{};
+    FLATBOOK_NO_UNIQUE_ADDRESS std::conditional_t<kHasParticipants, ParticipantType, NoParticipant> participant{};
   };
 
   /// Outcome of an order submission.
@@ -440,9 +441,8 @@ private:
   template <typename OnFill>
   bool matchLevel(PriceIdx price, Side side, Quantity &remaining, OnFill &onFill, Sequence seq,
                   ParticipantType aggressor, bool &skippedSelf) noexcept {
+    OrderIdx id = book_.head(price, side);
     while (remaining != 0) {
-      OrderIdx id = book_.head(price, side);
-
       if constexpr (kHasParticipants) {
         while (id != INVALID_ORDER && book_.participantOf(id) == aggressor) {
           skippedSelf = true;
@@ -454,12 +454,16 @@ private:
         return false;
       }
 
-      const Quantity restingQty = book_.qty(id);
-      const Quantity fill = std::min(remaining, restingQty);
+      // Capture next before reduce: a full fill recycles the slot, so id may
+      // no longer be valid afterwards. Continuing from next avoids re-walking
+      // the level head (and re-skipping self orders) on every iteration.
+      const OrderIdx next = book_.nextOf(id);
+      const Quantity fill = std::min(remaining, book_.qty(id));
 
       book_.reduce(id, fill);
       remaining -= fill;
       onFill(Fill{id, price, fill, side, seq});
+      id = next;
     }
     return true;
   }

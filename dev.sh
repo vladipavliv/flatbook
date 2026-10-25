@@ -149,7 +149,7 @@ case "$cmd" in
   tail)      do_tail ;;
   sanitize)  do_sanitize ;;
   tsan)      do_tsan ;;
-  bench)     do_bench "${1:-}" ;;
+  bench)     do_bench "$@" ;;
   all)       do_test; do_sanitize; do_bench ;;
   help|-h|--help) usage ;;
   *)         usage; exit 1 ;;
