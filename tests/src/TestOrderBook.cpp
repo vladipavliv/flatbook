@@ -1060,5 +1060,30 @@ TEST(OrderBook, ModifyInheritsParticipant) {
   EXPECT_EQ(e.book().participantOf(r.orderId), 7u); // inherited, not 99
 }
 
+TEST(OrderBook, RestOrderDoesNotMatch) {
+  Engine e;
+
+  // Feed-driven insert: rest a sell at 100 WITHOUT matching.
+  const auto sellId = e.restOrder(100, 10, Side::Sell);
+  ASSERT_NE(sellId, Engine::INVALID_ORDER);
+  EXPECT_EQ(e.openOrders(), 1u);
+  EXPECT_EQ(e.bestAsk(), 100);
+
+  // A buy at 100 would cross in addOrder, but restOrder just rests it.
+  const auto buyId = e.restOrder(100, 5, Side::Buy);
+  ASSERT_NE(buyId, Engine::INVALID_ORDER);
+  EXPECT_EQ(e.openOrders(), 2u);
+  EXPECT_EQ(e.bestBid(), 100);
+  EXPECT_EQ(e.bestAsk(), 100); // both sides at 100, nothing crossed
+
+  // Execute-by-id reduces the sell.
+  EXPECT_TRUE(e.reduce(sellId, 4));
+  EXPECT_EQ(e.book().volume(100, Side::Sell), 6u);
+
+  // Cancel the buy by id.
+  EXPECT_TRUE(e.cancelOrder(buyId).cancelled);
+  EXPECT_EQ(e.openOrders(), 1u);
+}
+
 } // namespace
 } // namespace flatbook

@@ -22,12 +22,14 @@ TEST(Lobster, ParseLine) {
   std::int64_t price = 0;
   bool buy = false;
 
-  ASSERT_TRUE(parseLobsterLine("34200.1 1 100 50 10000 -1", type, orderId, size, price, buy));
+  // Official LOBSTER sample line (space-separated despite the .csv extension).
+  ASSERT_TRUE(parseLobsterLine("34713.685155243 1 206833312 100 118600 -1", type, orderId, size,
+                               price, buy));
   EXPECT_EQ(type, 1);
-  EXPECT_EQ(orderId, 100u);
-  EXPECT_EQ(size, 50u);
-  EXPECT_EQ(price, 10000);
-  EXPECT_FALSE(buy); // -1 = sell
+  EXPECT_EQ(orderId, 206833312u);
+  EXPECT_EQ(size, 100u);
+  EXPECT_EQ(price, 118600); // dollar price x 10000 ($11.86)
+  EXPECT_FALSE(buy);        // -1 = sell
 
   ASSERT_TRUE(parseLobsterLine("34200.2 3 100 0 10000 1", type, orderId, size, price, buy));
   EXPECT_EQ(type, 3);

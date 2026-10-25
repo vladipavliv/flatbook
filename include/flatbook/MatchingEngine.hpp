@@ -274,6 +274,24 @@ public:
   }
 
   /**
+   * @brief Feed-driven "insert without matching": rest an order at @p price
+   * without crossing the opposite side.
+   *
+   * Replaying a market-data feed (ITCH/LOBSTER) must build the book exactly as
+   * the feed does — apply submissions, executions and cancellations by id — and
+   * NOT match price-time (the feed already records the executions). This is the
+   * feed-side primitive for that; it does not consume a sequence.
+   *
+   * @return The resting order id, or INVALID_ORDER if the price is outside the
+   *         window or the book is full.
+   */
+  [[nodiscard]]
+  OrderIdx restOrder(Price price, Quantity quantity, Side side,
+                     ParticipantType participant = ParticipantType{}) noexcept {
+    return book_.insert(price, quantity, side, participant);
+  }
+
+  /**
    * @brief Cancel an order and submit a replacement (cancel/replace).
    *
    * The replacement must be a Limit + GTC on the same side as the original
