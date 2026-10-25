@@ -139,7 +139,7 @@ void BM_Cancel(benchmark::State &state) {
       const auto target = activeIds[pos];
       activeIds[pos] = activeIds.back();
       activeIds.pop_back();
-      cancels += book->cancelOrder(target) ? 1 : 0;
+      cancels += book->cancelOrder(target).cancelled ? 1 : 0;
     } else {
       const auto &o = orders[idx++];
       benchmark::DoNotOptimize(&o);
@@ -369,7 +369,7 @@ void BM_OrderType(benchmark::State &state) {
     case 0:
       order.type = Engine::OrderType::Limit;
       order.tif = Engine::TimeInForce::GTC;
-      order.price = static_cast<typename Engine::PriceIdx>(o.price);
+      order.price = static_cast<typename Engine::Price>(o.price);
       break;
     case 1:
       order.type = Engine::OrderType::Market;
@@ -378,18 +378,18 @@ void BM_OrderType(benchmark::State &state) {
     case 2:
       order.type = Engine::OrderType::Limit;
       order.tif = Engine::TimeInForce::IOC;
-      order.price = static_cast<typename Engine::PriceIdx>(o.price);
+      order.price = static_cast<typename Engine::Price>(o.price);
       break;
     case 3:
       order.type = Engine::OrderType::Limit;
       order.tif = Engine::TimeInForce::FOK;
-      order.price = static_cast<typename Engine::PriceIdx>(o.price);
+      order.price = static_cast<typename Engine::Price>(o.price);
       break;
     case 4:
       order.type = Engine::OrderType::Limit;
       order.tif = Engine::TimeInForce::GTC;
       order.postOnly = true;
-      order.price = static_cast<typename Engine::PriceIdx>(o.price);
+      order.price = static_cast<typename Engine::Price>(o.price);
       break;
     }
 

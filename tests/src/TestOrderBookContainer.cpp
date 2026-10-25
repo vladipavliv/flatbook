@@ -9,7 +9,7 @@ namespace {
 
 using Book = OrderBook<64, 32>;
 using OrderIdx = Book::OrderIdx;
-using PriceIdx = Book::PriceIdx;
+using Price = Book::Price;
 using Side = Book::Side;
 
 using GenBook = OrderBook<64, 32, GenerationalId<64, 16>>;
@@ -258,6 +258,103 @@ TEST(OrderBookContainer, ClearEmptiesEverything) {
   EXPECT_EQ(b.bestBid(), Book::INVALID_PRICE);
   EXPECT_EQ(b.bestAsk(), Book::INVALID_PRICE);
   EXPECT_FALSE(b.isLive(a));
+}
+
+// ---------------------------------------------------------------------------
+// Price window / rebase
+// ---------------------------------------------------------------------------
+
+TEST(OrderBookContainer, RebaseKeepsLogicalPrice) {
+  Book b;
+  const OrderIdx a = b.insert(10, 5, Side::Buy);
+  const OrderIdx c = b.insert(12, 7, Side::Sell);
+  EXPECT_EQ(b.base(), 0);
+
+  const auto cancelled = b.rebase(5); // window [5, 37): both orders stay
+  EXPECT_TRUE(cancelled.empty());
+  EXPECT_EQ(b.base(), 5);
+  EXPECT_TRUE(b.isLive(a));
+  EXPECT_TRUE(b.isLive(c));
+  EXPECT_EQ(b.priceOf(a), 10); // logical price unchanged by the shift
+  EXPECT_EQ(b.priceOf(c), 12);
+  EXPECT_EQ(b.bestBid(), 10);
+  EXPECT_EQ(b.bestAsk(), 12);
+  EXPECT_EQ(b.volume(10, Side::Buy), 5u);
+  EXPECT_EQ(b.volume(12, Side::Sell), 7u);
+}
+
+TEST(OrderBookContainer, RebaseDownKeepsLogicalPrice) {
+  Book b;
+  const OrderIdx a = b.insert(20, 3, Side::Sell);
+
+  const auto cancelled = b.rebase(-10); // window [-10, 22): order stays
+  EXPECT_TRUE(cancelled.empty());
+  EXPECT_EQ(b.base(), -10);
+  EXPECT_EQ(b.priceOf(a), 20);
+  EXPECT_EQ(b.bestAsk(), 20);
+}
+
+TEST(OrderBookContainer, RebaseCancelsOrdersOutsideNewWindow) {
+  Book b;
+  const OrderIdx low = b.insert(5, 1, Side::Buy);
+  const OrderIdx high = b.insert(30, 1, Side::Sell);
+
+  const auto cancelled = b.rebase(20);
+  ASSERT_EQ(cancelled.size(), 1u);
+  EXPECT_EQ(cancelled[0], low);
+  EXPECT_FALSE(b.isLive(low));
+  EXPECT_TRUE(b.isLive(high));
+  EXPECT_EQ(b.priceOf(high), 30);
+  EXPECT_EQ(b.bestBid(), Book::INVALID_PRICE);
+  EXPECT_EQ(b.bestAsk(), 30);
+}
+
+TEST(OrderBookContainer, RebaseFarAwayCancelsEverything) {
+  Book b;
+  (void)b.insert(5, 1, Side::Buy);
+  (void)b.insert(30, 1, Side::Sell);
+
+  const auto cancelled = b.rebase(10'000); // old window entirely below new one
+  EXPECT_EQ(cancelled.size(), 2u);
+  EXPECT_EQ(b.openOrders(), 0u);
+  EXPECT_EQ(b.base(), 10'000);
+  EXPECT_EQ(b.bestBid(), Book::INVALID_PRICE);
+  EXPECT_EQ(b.bestAsk(), Book::INVALID_PRICE);
+}
+
+TEST(OrderBookContainer, RebaseIsIdempotentForSurvivors) {
+  Book b;
+  const OrderIdx a = b.insert(10, 5, Side::Buy);
+  (void)b.rebase(5);
+  (void)b.rebase(8); // window [8, 40): order at 10 survives both shifts
+  EXPECT_TRUE(b.isLive(a));
+  EXPECT_EQ(b.priceOf(a), 10);
+  EXPECT_EQ(b.base(), 8);
+}
+
+TEST(OrderBookContainer, RebasePreservesFifoWithinLevel) {
+  Book b;
+  const OrderIdx a = b.insert(10, 1, Side::Buy);
+  const OrderIdx c = b.insert(10, 2, Side::Buy);
+  const OrderIdx d = b.insert(10, 3, Side::Buy);
+  (void)b.rebase(5);
+  // FIFO order and linkage must survive the shift.
+  EXPECT_EQ(b.head(10, Side::Buy), a);
+  EXPECT_EQ(b.nextOf(a), c);
+  EXPECT_EQ(b.nextOf(c), d);
+  EXPECT_EQ(b.nextOf(d), Book::INVALID_ORDER);
+  EXPECT_EQ(b.volume(10, Side::Buy), 1u + 2u + 3u);
+}
+
+TEST(OrderBookContainer, InsertOutsideWindowRejected) {
+  Book b;
+  EXPECT_EQ(b.insert(Book::kPriceLevels, 1, Side::Buy), Book::INVALID_ORDER);
+  EXPECT_EQ(b.insert(-1, 1, Side::Buy), Book::INVALID_ORDER);
+  EXPECT_EQ(b.openOrders(), 0u);
+  EXPECT_TRUE(b.isPriceInWindow(0));
+  EXPECT_TRUE(b.isPriceInWindow(Book::kPriceLevels - 1));
+  EXPECT_FALSE(b.isPriceInWindow(Book::kPriceLevels));
+  EXPECT_FALSE(b.isPriceInWindow(-1));
 }
 
 } // namespace

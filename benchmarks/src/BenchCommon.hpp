@@ -30,7 +30,7 @@ template <typename Engine>
 typename Engine::AddResult addLimit(Engine &book, const GenOrder &o) {
   return book.addOrder({.type = Engine::OrderType::Limit,
                         .tif = Engine::TimeInForce::GTC,
-                        .price = static_cast<typename Engine::PriceIdx>(o.price),
+                        .price = static_cast<typename Engine::Price>(o.price),
                         .quantity = o.qty,
                         .side = o.buy ? Engine::Side::Buy : Engine::Side::Sell});
 }
@@ -41,7 +41,7 @@ template <typename Engine>
 typename Engine::AddResult addRest(Engine &book, const GenOrder &o) {
   return book.addOrder({.type = Engine::OrderType::Limit,
                         .tif = Engine::TimeInForce::GTC,
-                        .price = static_cast<typename Engine::PriceIdx>(o.price),
+                        .price = static_cast<typename Engine::Price>(o.price),
                         .quantity = o.qty,
                         .side = Engine::Side::Buy});
 }

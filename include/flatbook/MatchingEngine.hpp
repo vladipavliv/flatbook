@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 #include "Concepts.hpp"
 #include "Id.hpp"
@@ -24,7 +25,9 @@ namespace flatbook {
  * Every order submission (add and modify) is assigned a monotonically
  * increasing `Sequence`, which is stamped on the resulting ack and every fill,
  * giving a deterministic order of submission and execution events for replay.
- * `cancelOrder` is a synchronous boolean and is not assigned a sequence.
+ * `cancelOrder` and `rebase` are assigned sequences too (via their result
+ * structs), so every mutating operation carries a sequence and can be journaled
+ * and replayed deterministically.
  *
  * Self-trade prevention is optional: when the book's `Participant` type is not
  * `void`, each order carries a participant key. A key of `0` disables STP (the
@@ -45,7 +48,7 @@ template <OrderBookLike Book>
 class MatchingEngine {
 public:
   using OrderIdx = typename Book::OrderIdx;
-  using PriceIdx = typename Book::PriceIdx;
+  using Price = typename Book::Price;
   using Side = typename Book::Side;
 
   /// Monotonic per-order sequence number.
@@ -57,7 +60,7 @@ public:
   using ParticipantType = typename Book::ParticipantType;
 
   static constexpr OrderIdx INVALID_ORDER = Book::INVALID_ORDER;
-  static constexpr PriceIdx INVALID_PRICE = Book::INVALID_PRICE;
+  static constexpr Price INVALID_PRICE = Book::INVALID_PRICE;
 
   /// Order kind: a price-resting limit order or a marketable order.
   enum class OrderType : std::uint8_t { Limit, Market };
@@ -85,7 +88,7 @@ public:
     OrderType type{OrderType::Limit};
     TimeInForce tif{TimeInForce::GTC};
     bool postOnly{false};
-    PriceIdx price{};
+    Price price{};
     Quantity quantity{};
     Side side{};
     FLATBOOK_NO_UNIQUE_ADDRESS std::conditional_t<kHasParticipants, ParticipantType, NoParticipant> participant{};
@@ -104,7 +107,7 @@ public:
    */
   struct Fill {
     OrderIdx orderId{}; ///< Resting order id (already recycled if fully filled).
-    PriceIdx price{};   ///< Execution price (the resting order's price).
+    Price price{};      ///< Execution price (the resting order's price).
     Quantity quantity{};
     Side side{};        ///< Resting order side.
     Sequence seq{};     ///< Sequence of the aggressor order that caused this fill.
@@ -157,7 +160,7 @@ public:
       return {Result::Rejected, INVALID_ORDER, quantity, seq};
     }
 
-    if (order.type == OrderType::Limit && order.price >= Book::kPriceLevels) {
+    if (order.type == OrderType::Limit && !book_.isPriceInWindow(order.price)) {
       return {Result::Rejected, INVALID_ORDER, quantity, seq};
     }
 
@@ -214,14 +217,23 @@ public:
     return {Result::Rejected, INVALID_ORDER, remaining, seq};
   }
 
+  /// Outcome of a cancel request.
+  struct CancelResult {
+    bool cancelled{false}; ///< true when the id was live and was removed.
+    Sequence seq{0};       ///< Sequence assigned to this cancel.
+  };
+
   /**
    * @brief Cancel a resting order.
    * @param id Order id returned by addOrder() (Resting result).
-   * @return true if cancelled, false if the id is not live (or stale).
+   * @return cancelled = true if removed, false if the id is not live (or
+   *         stale); seq = the sequence assigned to this cancel (always
+   *         consumed, even for a stale id, so the journal stays deterministic).
    */
   [[nodiscard]]
-  bool cancelOrder(OrderIdx id) noexcept {
-    return book_.remove(id);
+  CancelResult cancelOrder(OrderIdx id) noexcept {
+    const Sequence seq = nextSeq_++;
+    return {book_.remove(id), seq};
   }
 
   /**
@@ -281,14 +293,49 @@ public:
 
   /// @return Best bid price, or INVALID_PRICE when no bids rest.
   [[nodiscard]]
-  PriceIdx bestBid() const noexcept {
+  Price bestBid() const noexcept {
     return book_.bestBid();
   }
 
   /// @return Best ask price, or INVALID_PRICE when no asks rest.
   [[nodiscard]]
-  PriceIdx bestAsk() const noexcept {
+  Price bestAsk() const noexcept {
     return book_.bestAsk();
+  }
+
+  /// @return The logical price mapped to slot 0 (the window's lower edge).
+  [[nodiscard]]
+  Price base() const noexcept {
+    return book_.base();
+  }
+
+  /// @return true when @p price maps to a slot inside the current window.
+  [[nodiscard]]
+  bool isPriceInWindow(Price price) const noexcept {
+    return book_.isPriceInWindow(price);
+  }
+
+  /// Outcome of a rebase request.
+  struct RebaseResult {
+    std::vector<OrderIdx> cancelled{}; ///< Orders removed because they left the window.
+    Sequence seq{0};                   ///< Sequence assigned to this rebase.
+  };
+
+  /**
+   * @brief Move the price window so that slot 0 maps to @p newBase.
+   *
+   * Delegates to the underlying book (see OrderBook::rebase). Orders that fell
+   * outside the new window are removed and their ids returned in `cancelled`;
+   * the engine does not emit a cancel event for them itself, so the caller is
+   * responsible for reporting the cancellations. The rebase is assigned a
+   * sequence (stamped in `seq`) so it can be journaled and replayed.
+   *
+   * @return The cancelled order ids and the sequence assigned to this rebase.
+   */
+  [[nodiscard]]
+  RebaseResult rebase(Price newBase) noexcept {
+    const Sequence seq = nextSeq_++;
+    return {book_.rebase(newBase), seq};
   }
 
   /// @return The last sequence number assigned (0 if none yet).
@@ -340,7 +387,7 @@ private:
     if (order.postOnly && (order.type != OrderType::Limit || order.tif != TimeInForce::GTC)) {
       return true;
     }
-    if (order.type == OrderType::Limit && order.price >= Book::kPriceLevels) {
+    if (order.type == OrderType::Limit && !book_.isPriceInWindow(order.price)) {
       return true;
     }
     if (order.postOnly && crossable(order)) {
@@ -354,7 +401,7 @@ private:
 
   /// @return Total quantity at a level matchable by @p aggressor (excludes self).
   [[nodiscard]]
-  Volume matchableVolume(PriceIdx price, Side side, ParticipantType aggressor) const noexcept {
+  Volume matchableVolume(Price price, Side side, ParticipantType aggressor) const noexcept {
     if constexpr (!kHasParticipants) {
       return book_.volume(price, side);
     } else {
@@ -372,10 +419,10 @@ private:
   [[nodiscard]]
   bool crossable(const Order &order) const noexcept {
     if (order.side == Side::Buy) {
-      const PriceIdx ask = book_.bestAsk();
+      const Price ask = book_.bestAsk();
       return ask != INVALID_PRICE && ask <= order.price;
     }
-    const PriceIdx bid = book_.bestBid();
+    const Price bid = book_.bestBid();
     return bid != INVALID_PRICE && bid >= order.price;
   }
 
@@ -386,7 +433,7 @@ private:
   template <typename Visit>
   void walkCrossing(const Order &order, Visit &&visit) const noexcept {
     if (order.side == Side::Buy) {
-      PriceIdx price = book_.bestAsk();
+      Price price = book_.bestAsk();
       while (price != INVALID_PRICE) {
         if (order.type == OrderType::Limit && price > order.price) {
           break;
@@ -394,10 +441,10 @@ private:
         if (visit(price)) {
           break;
         }
-        price = book_.nextLevel(static_cast<PriceIdx>(price + 1), Side::Sell);
+        price = book_.nextLevel(price + 1, Side::Sell);
       }
     } else {
-      PriceIdx price = book_.bestBid();
+      Price price = book_.bestBid();
       while (price != INVALID_PRICE) {
         if (order.type == OrderType::Limit && price < order.price) {
           break;
@@ -405,10 +452,7 @@ private:
         if (visit(price)) {
           break;
         }
-        if (price == 0) {
-          break;
-        }
-        price = book_.nextLevel(static_cast<PriceIdx>(price - 1), Side::Buy);
+        price = book_.nextLevel(price - 1, Side::Buy);
       }
     }
   }
@@ -421,7 +465,7 @@ private:
     const Side restSide = order.side == Side::Buy ? Side::Sell : Side::Buy;
     Volume available = 0;
 
-    walkCrossing(order, [&](PriceIdx price) {
+    walkCrossing(order, [&](Price price) {
       available += matchableVolume(price, restSide, aggressor);
       return available >= need;
     });
@@ -439,7 +483,7 @@ private:
     Quantity remaining = order.quantity;
     const Side restSide = order.side == Side::Buy ? Side::Sell : Side::Buy;
 
-    walkCrossing(order, [&](PriceIdx price) {
+    walkCrossing(order, [&](Price price) {
       return matchLevel(price, restSide, remaining, onFill, seq, aggressor, skippedSelf); // true = fully matched
     });
 
@@ -451,7 +495,7 @@ private:
   /// @return true if the aggressor fully drained; false if the level has no
   ///         matchable (non-self) liquidity left and @p remaining > 0.
   template <typename OnFill>
-  bool matchLevel(PriceIdx price, Side side, Quantity &remaining, OnFill &onFill, Sequence seq,
+  bool matchLevel(Price price, Side side, Quantity &remaining, OnFill &onFill, Sequence seq,
                   ParticipantType aggressor, bool &skippedSelf) noexcept {
     OrderIdx id = book_.head(price, side);
     while (remaining != 0) {

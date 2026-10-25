@@ -22,7 +22,7 @@ Order makeOrder(std::mt19937_64 &rng) {
   Order o;
   o.type = (rng() % 10 == 0) ? Engine::OrderType::Market : Engine::OrderType::Limit;
   o.tif = static_cast<Engine::TimeInForce>(rng() % 3);
-  o.price = static_cast<Engine::PriceIdx>(rng() % Book::kPriceLevels);
+  o.price = static_cast<Engine::Price>(rng() % Book::kPriceLevels);
   o.quantity = static_cast<Quantity>(1 + rng() % 100);
   o.side = (rng() & 1) ? Engine::Side::Buy : Engine::Side::Sell;
   return o;
@@ -137,7 +137,7 @@ TEST(MatchingDispatcher, CancelModifyMatchReference) {
         op.kind = OpKind::Cancel;
         op.id = live[idx];
         ops[s].push_back(op);
-        refCancels[s].push_back(e.cancelOrder(op.id));
+        refCancels[s].push_back(e.cancelOrder(op.id).cancelled);
         live.erase(live.begin() + static_cast<std::ptrdiff_t>(idx));
       } else {
         const size_t idx = static_cast<size_t>(rng() % live.size());

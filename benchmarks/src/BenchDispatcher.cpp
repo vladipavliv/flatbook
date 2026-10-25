@@ -29,7 +29,7 @@ Order makeOrder(std::mt19937_64 &rng) {
   Order o;
   o.type = (rng() % 10 == 0) ? Engine::OrderType::Market : Engine::OrderType::Limit;
   o.tif = Engine::TimeInForce::GTC;
-  o.price = static_cast<Engine::PriceIdx>(rng() % Book::kPriceLevels);
+  o.price = static_cast<Engine::Price>(rng() % Book::kPriceLevels);
   o.quantity = static_cast<Quantity>(1 + rng() % 100);
   o.side = (rng() & 1) ? Engine::Side::Buy : Engine::Side::Sell;
   return o;

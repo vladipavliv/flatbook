@@ -235,7 +235,7 @@ private:
       break;
     }
     case Command::Kind::Cancel: {
-      const bool ok = book.cancelOrder(cmd.orderId);
+      const bool ok = book.cancelOrder(cmd.orderId).cancelled;
       Event e;
       e.kind = Event::Kind::Cancel;
       e.symbolIdx = cmd.symbolIdx;

@@ -22,7 +22,7 @@ auto submit(EngineT &engine, const typename EngineT::Order &order,
   return engine.addOrder(order, [&](const typename EngineT::Fill &f) { fills.push_back(f); });
 }
 
-Engine::Order limit(Engine::PriceIdx price, Quantity qty, Side side) {
+Engine::Order limit(Engine::Price price, Quantity qty, Side side) {
   return {.type = OrderType::Limit,
           .tif = TimeInForce::GTC,
           .price = price,
@@ -313,11 +313,11 @@ TEST(OrderBook, CancelRemovesRestingOrder) {
   Fills fills;
 
   auto r = submit(e, limit(100, 5, Side::Sell), fills);
-  EXPECT_TRUE(e.cancelOrder(r.orderId));
+  EXPECT_TRUE(e.cancelOrder(r.orderId).cancelled);
   EXPECT_EQ(e.openOrders(), 0u);
   EXPECT_EQ(e.bestAsk(), Engine::INVALID_PRICE);
 
-  EXPECT_FALSE(e.cancelOrder(r.orderId)); // double cancel
+  EXPECT_FALSE(e.cancelOrder(r.orderId).cancelled); // double cancel
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +354,7 @@ TEST(OrderBook, ReleasedIdsAreReusedLifo) {
   Fills fills;
 
   auto first = submit(e, limit(100, 5, Side::Sell), fills);
-  EXPECT_TRUE(e.cancelOrder(first.orderId));
+  EXPECT_TRUE(e.cancelOrder(first.orderId).cancelled);
 
   auto second = submit(e, limit(101, 5, Side::Sell), fills);
   EXPECT_EQ(second.orderId, first.orderId);
@@ -428,7 +428,7 @@ TEST(OrderBook, ModifyRejectsStaleId) {
 
   auto a = submit(e, limit(100, 5, Side::Sell), fills);
   ASSERT_TRUE(a.resting());
-  EXPECT_TRUE(e.cancelOrder(a.orderId));
+  EXPECT_TRUE(e.cancelOrder(a.orderId).cancelled);
 
   auto r = e.modify(a.orderId, limit(101, 5, Side::Sell),
                     [&](const Engine::Fill &f) { fills.push_back(f); });
@@ -467,6 +467,48 @@ TEST(OrderBook, FokAtTopPriceLevelRejected) {
   EXPECT_EQ(e.openOrders(), 1u); // sell untouched
 }
 
+// ---------------------------------------------------------------------------
+// Price window / rebase
+// ---------------------------------------------------------------------------
+
+TEST(OrderBook, RebaseKeepsOrdersAndMatching) {
+  Engine e;
+  Fills fills;
+
+  auto a = submit(e, limit(100, 5, Side::Sell), fills);
+  ASSERT_TRUE(a.resting());
+
+  const auto cancelled = e.rebase(50).cancelled;
+  EXPECT_TRUE(cancelled.empty());
+  EXPECT_EQ(e.base(), 50);
+  EXPECT_EQ(e.bestAsk(), 100);
+  EXPECT_EQ(e.book().priceOf(a.orderId), 100); // logical price unchanged
+
+  auto r = submit(e, {.type = OrderType::Market, .quantity = 5, .side = Side::Buy}, fills);
+  EXPECT_EQ(r.result, Result::Filled);
+  ASSERT_EQ(fills.size(), 1u);
+  EXPECT_EQ(fills[0].price, 100);
+  EXPECT_EQ(e.openOrders(), 0u);
+}
+
+TEST(OrderBook, RebaseCancelsOutOfWindowOrders) {
+  Engine e;
+  Fills fills;
+
+  auto low = submit(e, limit(5, 1, Side::Buy), fills);
+  auto high = submit(e, limit(250, 1, Side::Sell), fills);
+  ASSERT_TRUE(low.resting());
+  ASSERT_TRUE(high.resting());
+
+  const auto cancelled = e.rebase(100).cancelled;
+  ASSERT_EQ(cancelled.size(), 1u);
+  EXPECT_EQ(cancelled[0], low.orderId);
+  EXPECT_FALSE(e.book().isLive(low.orderId));
+  EXPECT_TRUE(e.book().isLive(high.orderId));
+  EXPECT_EQ(e.bestBid(), Engine::INVALID_PRICE);
+  EXPECT_EQ(e.bestAsk(), 250);
+}
+
 TEST(OrderBook, ModifyInvalidReplacementKeepsOrder) {
   Engine e;
   Fills fills;
@@ -481,7 +523,7 @@ TEST(OrderBook, ModifyInvalidReplacementKeepsOrder) {
   EXPECT_EQ(r.result, Result::Rejected);
   EXPECT_EQ(e.openOrders(), 1u);
   EXPECT_EQ(e.book().volume(100, Side::Sell), 5u);
-  EXPECT_TRUE(e.cancelOrder(a.orderId));
+  EXPECT_TRUE(e.cancelOrder(a.orderId).cancelled);
 }
 
 TEST(OrderBook, ModifySideChangeRejected) {
@@ -498,7 +540,7 @@ TEST(OrderBook, ModifySideChangeRejected) {
   EXPECT_EQ(r.result, Result::Rejected);
   EXPECT_EQ(e.openOrders(), 1u);
   EXPECT_EQ(e.book().volume(100, Side::Sell), 5u);
-  EXPECT_TRUE(e.cancelOrder(a.orderId));
+  EXPECT_TRUE(e.cancelOrder(a.orderId).cancelled);
 }
 
 TEST(OrderBook, ModifyNonGtcRejected) {
@@ -518,7 +560,7 @@ TEST(OrderBook, ModifyNonGtcRejected) {
 
   EXPECT_EQ(r.result, Result::Rejected);
   EXPECT_EQ(e.openOrders(), 1u);
-  EXPECT_TRUE(e.cancelOrder(a.orderId));
+  EXPECT_TRUE(e.cancelOrder(a.orderId).cancelled);
 }
 
 // ---------------------------------------------------------------------------
@@ -540,8 +582,8 @@ TEST(OrderBook, GenerationalIdRejectsDoubleCancel) {
   auto a = e.addOrder(sell, [&](const GenEngine::Fill &f) { fills.push_back(f); });
   ASSERT_TRUE(a.resting());
 
-  EXPECT_TRUE(e.cancelOrder(a.orderId));
-  EXPECT_FALSE(e.cancelOrder(a.orderId)); // stale: slot is empty again
+  EXPECT_TRUE(e.cancelOrder(a.orderId).cancelled);
+  EXPECT_FALSE(e.cancelOrder(a.orderId).cancelled); // stale: slot is empty again
 }
 
 TEST(OrderBook, GenerationalIdRejectsStaleCancelAfterReuse) {
@@ -550,7 +592,7 @@ TEST(OrderBook, GenerationalIdRejectsStaleCancelAfterReuse) {
   GenEngine e;
   std::vector<GenEngine::Fill> fills;
 
-  const auto makeSell = [](GenEngine::PriceIdx price) {
+  const auto makeSell = [](GenEngine::Price price) {
     return GenEngine::Order{.type = GenEngine::OrderType::Limit,
                             .tif = GenEngine::TimeInForce::GTC,
                             .price = price,
@@ -561,7 +603,7 @@ TEST(OrderBook, GenerationalIdRejectsStaleCancelAfterReuse) {
   auto a = e.addOrder(makeSell(100), [&](const GenEngine::Fill &f) { fills.push_back(f); });
   ASSERT_TRUE(a.resting());
 
-  EXPECT_TRUE(e.cancelOrder(a.orderId)); // slot returned to the pool
+  EXPECT_TRUE(e.cancelOrder(a.orderId).cancelled); // slot returned to the pool
 
   auto b = e.addOrder(makeSell(101), [&](const GenEngine::Fill &f) { fills.push_back(f); });
   ASSERT_TRUE(b.resting());
@@ -571,11 +613,11 @@ TEST(OrderBook, GenerationalIdRejectsStaleCancelAfterReuse) {
   EXPECT_NE(a.orderId.generation(), b.orderId.generation());
 
   // Stale id must not cancel the new order...
-  EXPECT_FALSE(e.cancelOrder(a.orderId));
+  EXPECT_FALSE(e.cancelOrder(a.orderId).cancelled);
   EXPECT_EQ(e.openOrders(), 1u);
 
   // ...while the fresh id does.
-  EXPECT_TRUE(e.cancelOrder(b.orderId));
+  EXPECT_TRUE(e.cancelOrder(b.orderId).cancelled);
   EXPECT_EQ(e.openOrders(), 0u);
 }
 
@@ -592,10 +634,10 @@ TEST(OrderBook, GenerationalIdSurvivesCloseAndEmptyWindow) {
                               .side = GenEngine::Side::Sell};
 
   auto a = e.addOrder(sell, [&](const GenEngine::Fill &f) { fills.push_back(f); });
-  EXPECT_TRUE(e.cancelOrder(a.orderId));
+  EXPECT_TRUE(e.cancelOrder(a.orderId).cancelled);
 
   // Slot is now empty and freed; a stale cancel must not resurrect anything.
-  EXPECT_FALSE(e.cancelOrder(a.orderId));
+  EXPECT_FALSE(e.cancelOrder(a.orderId).cancelled);
   EXPECT_EQ(e.openOrders(), 0u);
 }
 

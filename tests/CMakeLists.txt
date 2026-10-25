@@ -13,6 +13,7 @@ add_executable(flatbook_tests
     src/TestBitmap.cpp
     src/TestDispatcher.cpp
     src/TestIds.cpp
+    src/TestJournal.cpp
     src/TestOrderBook.cpp
     src/TestOrderBookContainer.cpp
     src/TestProperty.cpp

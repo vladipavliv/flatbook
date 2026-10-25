@@ -4,8 +4,10 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <type_traits>
+#include <vector>
 
 #include "Bitmap.hpp"
 #include "Concepts.hpp"
@@ -58,8 +60,14 @@ public:
   using OrderIdx = Id;
   /// Raw dense slot index used internally (links, array subscripts).
   using SlotIdx = IndexType<Size>;
-  /// Price level index.
+  /// Price level index (slot): the storage offset within the current window.
+  /// Internal: `levels_` and the bitmap are indexed by slot, not by price.
   using PriceIdx = IndexType<PriceLevels>;
+
+  /// Logical price (tick). Unbounded; the window maps it to a slot via
+  /// `slot = price - base_`, so the book is not tied to a fixed compile-time
+  /// price range. Prices are assumed to stay within `kPriceLevels` of `base_`.
+  using Price = std::int64_t;
 
   /// Whether per-order self-trade-prevention keys are stored.
   static constexpr bool kHasParticipants = !std::is_void_v<Participant>;
@@ -75,8 +83,8 @@ public:
   static constexpr SlotIdx NULL_SLOT = 0;
   /// Id meaning "no order" (insert() failed / capacity exhausted).
   static constexpr OrderIdx INVALID_ORDER = Id::invalid();
-  /// Price index meaning "no such level".
-  static constexpr PriceIdx INVALID_PRICE = std::numeric_limits<PriceIdx>::max();
+  /// Logical price meaning "no such level".
+  static constexpr Price INVALID_PRICE = std::numeric_limits<Price>::min();
 
   /// Order side.
   enum class Side : std::uint8_t { Buy, Sell };
@@ -90,7 +98,7 @@ public:
     Quantity qty{};   ///< Remaining quantity (0 = slot not live).
     SlotIdx next{};   ///< Next order in level (NULL_SLOT if tail).
     SlotIdx prev{};   ///< Previous order in level (NULL_SLOT if head).
-    PriceIdx price{}; ///< Price level index.
+    PriceIdx price{}; ///< Price level slot; logical price is `base_ + price`.
     Side side{};      ///< Side of the level this order rests in.
     // Per-order generation for ABA protection; zero-size for non-generational ids.
     FLATBOOK_NO_UNIQUE_ADDRESS std::conditional_t<Id::kHasGeneration, std::uint32_t, NoGeneration> gen{};
@@ -123,18 +131,19 @@ public:
 
   /**
    * @brief Rest an order at the back of a price level (FIFO).
-   * @param price       Price level index (must be < kPriceLevels).
+   * @param price       Logical price (must be inside the current window).
    * @param quantity    Quantity to rest (must be > 0).
    * @param side        Buy or Sell.
    * @param participant Self-trade-prevention key (ignored when disabled).
    * @return The new order id, or INVALID_ORDER on bad input / exhausted capacity.
    */
   [[nodiscard]]
-  OrderIdx insert(PriceIdx price, Quantity quantity, Side side,
+  OrderIdx insert(Price price, Quantity quantity, Side side,
                   ParticipantType participant = ParticipantType{}) noexcept {
-    if (quantity == 0 || price >= kPriceLevels) {
+    if (quantity == 0 || !isPriceInWindow(price)) {
       return INVALID_ORDER;
     }
+    const PriceIdx priceSlot = toSlot(price);
 
     const OrderIdx id = idPool_.acquire();
     if (id == INVALID_ORDER) {
@@ -144,7 +153,7 @@ public:
     const SlotIdx slot = id.index();
     Node &node = nodes_[slot];
     node.qty = quantity;
-    node.price = price;
+    node.price = priceSlot;
     node.next = NULL_SLOT;
     node.prev = NULL_SLOT;
     node.side = side;
@@ -155,14 +164,14 @@ public:
       node.participant = participant;
     }
 
-    PriceLevelSide &level = levelSide(price, side);
+    PriceLevelSide &level = levelSide(priceSlot, side);
 
     node.prev = level.tail;
     if (level.tail != NULL_SLOT) {
       nodes_[level.tail].next = slot;
     } else {
       level.head = slot;
-      bitmap(side).set(price);
+      bitmap(side).set(priceSlot);
     }
 
     level.tail = slot;
@@ -234,6 +243,87 @@ public:
     idPool_.clear();
   }
 
+  /// @return The logical price mapped to slot 0 (the window's lower edge).
+  [[nodiscard]]
+  Price base() const noexcept {
+    return base_;
+  }
+
+  /// @return true when @p price maps to a slot inside the current window.
+  [[nodiscard]]
+  bool isPriceInWindow(Price price) const noexcept {
+    return price >= base_ && static_cast<std::uint64_t>(price - base_) < kPriceLevels;
+  }
+
+  /**
+   * @brief Move the price window so that slot 0 maps to @p newBase.
+   *
+   * Resting orders whose logical price falls outside the new window
+   * `[newBase, newBase + kPriceLevels)` are cancelled (removed) and their ids
+   * returned so the caller can report the cancellations. Surviving orders keep
+   * their logical price; only their storage slot (and the level arrays and
+   * bitmap) is re-indexed.
+   *
+   * This is a cold, O(open orders + kPriceLevels) operation: the hot path is
+   * untouched, but a rebase must not run per order. It allocates only the
+   * returned id vector.
+   *
+   * @return Ids of orders cancelled because they fell outside the new window.
+   */
+  [[nodiscard]]
+  std::vector<OrderIdx> rebase(Price newBase) noexcept {
+    std::vector<OrderIdx> cancelled;
+    const Price delta = newBase - base_;
+
+    if (delta != 0) {
+      // Pass 1: cancel orders that fall outside the new window.
+      for (SlotIdx s = 1; s < kSize; ++s) {
+        if (nodes_[s].qty == 0) {
+          continue;
+        }
+        const Price logical = base_ + static_cast<Price>(nodes_[s].price);
+        if (logical < newBase || logical >= newBase + static_cast<Price>(kPriceLevels)) {
+          const OrderIdx id = idOf(s);
+          (void)remove(id);
+          cancelled.push_back(id);
+        }
+      }
+
+      // Pass 2: shift survivors and the level arrays to the new base.
+      if (delta > 0) {
+        const PriceIdx shift = static_cast<PriceIdx>(std::min<Price>(delta, kPriceLevels));
+        if (shift == kPriceLevels) {
+          levels_.fill({});
+        } else {
+          std::memmove(&levels_[0], &levels_[shift], sizeof(PriceLevel) * (kPriceLevels - shift));
+          std::fill(levels_.begin() + (kPriceLevels - shift), levels_.end(), PriceLevel{});
+          for (SlotIdx s = 1; s < kSize; ++s) {
+            if (nodes_[s].qty != 0) {
+              nodes_[s].price = static_cast<PriceIdx>(nodes_[s].price - shift);
+            }
+          }
+        }
+      } else {
+        const PriceIdx shift = static_cast<PriceIdx>(std::min<Price>(-delta, kPriceLevels));
+        if (shift == kPriceLevels) {
+          levels_.fill({});
+        } else {
+          std::memmove(&levels_[shift], &levels_[0], sizeof(PriceLevel) * (kPriceLevels - shift));
+          std::fill(levels_.begin(), levels_.begin() + shift, PriceLevel{});
+          for (SlotIdx s = 1; s < kSize; ++s) {
+            if (nodes_[s].qty != 0) {
+              nodes_[s].price = static_cast<PriceIdx>(nodes_[s].price + shift);
+            }
+          }
+        }
+      }
+    }
+
+    base_ = newBase;
+    rebuildBitmaps();
+    return cancelled;
+  }
+
   /// @return Number of currently live orders.
   [[nodiscard]]
   std::size_t openOrders() const noexcept {
@@ -249,9 +339,9 @@ public:
 
   /// @return Read-only view of a price level (both sides).
   [[nodiscard]]
-  const PriceLevel &level(PriceIdx price) const noexcept {
-    assert(price < kPriceLevels);
-    return levels_[price];
+  const PriceLevel &level(Price price) const noexcept {
+    assert(isPriceInWindow(price));
+    return levels_[toSlot(price)];
   }
 
   /// @return Remaining quantity of an order.
@@ -261,11 +351,11 @@ public:
     return nodes_[id.index()].qty;
   }
 
-  /// @return Price level index of an order.
+  /// @return Logical price level index of an order.
   [[nodiscard]]
-  PriceIdx priceOf(OrderIdx id) const noexcept {
+  Price priceOf(OrderIdx id) const noexcept {
     assert(id.index() < kSize);
-    return nodes_[id.index()].price;
+    return base_ + static_cast<Price>(nodes_[id.index()].price);
   }
 
   /// @return Side of an order.
@@ -291,8 +381,8 @@ public:
    * @return Order id, or INVALID_ORDER when the level is empty.
    */
   [[nodiscard]]
-  OrderIdx head(PriceIdx price, Side side) const noexcept {
-    const SlotIdx slot = levelSide(price, side).head;
+  OrderIdx head(Price price, Side side) const noexcept {
+    const SlotIdx slot = levelSide(toSlot(price), side).head;
     if (slot == NULL_SLOT) {
       return INVALID_ORDER;
     }
@@ -315,31 +405,58 @@ public:
 
   /// @return Total resting volume at a price level/side.
   [[nodiscard]]
-  Volume volume(PriceIdx price, Side side) const noexcept {
-    return levelSide(price, side).volume;
+  Volume volume(Price price, Side side) const noexcept {
+    return levelSide(toSlot(price), side).volume;
   }
 
   /// @return Best bid price, or INVALID_PRICE when no bids rest.
   [[nodiscard]]
-  PriceIdx bestBid() const noexcept {
-    return bidMask_.max();
+  Price bestBid() const noexcept {
+    const PriceIdx slot = bidMask_.max();
+    if (slot == Bitmap<PriceLevels>::INVALID) {
+      return INVALID_PRICE;
+    }
+    return base_ + static_cast<Price>(slot);
   }
 
   /// @return Best ask price, or INVALID_PRICE when no asks rest.
   [[nodiscard]]
-  PriceIdx bestAsk() const noexcept {
-    return askMask_.min();
+  Price bestAsk() const noexcept {
+    const PriceIdx slot = askMask_.min();
+    if (slot == Bitmap<PriceLevels>::INVALID) {
+      return INVALID_PRICE;
+    }
+    return base_ + static_cast<Price>(slot);
   }
 
   /**
    * @brief Next non-empty level in matching order, at or past @p from (inclusive).
    *
    * Buy side walks down (best bid = highest); Sell side walks up (best ask = lowest).
-   * @return Price index, or INVALID_PRICE when none remains.
+   * @return Logical price, or INVALID_PRICE when none remains.
    */
   [[nodiscard]]
-  PriceIdx nextLevel(PriceIdx from, Side side) const noexcept {
-    return side == Side::Buy ? bidMask_.findLast(from) : askMask_.findFirst(from);
+  Price nextLevel(Price from, Side side) const noexcept {
+    if (side == Side::Buy) {
+      if (from < base_) {
+        return INVALID_PRICE;
+      }
+      const PriceIdx slot = static_cast<PriceIdx>(std::min<Price>(from - base_, kPriceLevels - 1));
+      const PriceIdx found = bidMask_.findLast(slot);
+      if (found == Bitmap<PriceLevels>::INVALID) {
+        return INVALID_PRICE;
+      }
+      return base_ + static_cast<Price>(found);
+    }
+    if (from >= base_ + static_cast<Price>(kPriceLevels)) {
+      return INVALID_PRICE;
+    }
+    const PriceIdx slot = static_cast<PriceIdx>(std::max<Price>(from - base_, 0));
+    const PriceIdx found = askMask_.findFirst(slot);
+    if (found == Bitmap<PriceLevels>::INVALID) {
+      return INVALID_PRICE;
+    }
+    return base_ + static_cast<Price>(found);
   }
 
 private:
@@ -422,6 +539,27 @@ private:
     }
   }
 
+  /// @return The slot index for a logical price; @pre in window.
+  [[nodiscard]]
+  PriceIdx toSlot(Price price) const noexcept {
+    assert(isPriceInWindow(price));
+    return static_cast<PriceIdx>(price - base_);
+  }
+
+  /// Rebuild both bitmaps from the level arrays. Cold path (rebase only).
+  void rebuildBitmaps() noexcept {
+    bidMask_.clear();
+    askMask_.clear();
+    for (PriceIdx slot = 0; slot < kPriceLevels; ++slot) {
+      if (levels_[slot].bid.volume != 0) {
+        bidMask_.set(slot);
+      }
+      if (levels_[slot].ask.volume != 0) {
+        askMask_.set(slot);
+      }
+    }
+  }
+
 private:
   std::array<Node, Size> nodes_{};
   std::array<PriceLevel, PriceLevels> levels_{};
@@ -430,6 +568,9 @@ private:
   Bitmap<PriceLevels> askMask_;
 
   IdPool<Size, Id> idPool_;
+
+  /// Logical price mapped to slot 0. The window is [base_, base_ + PriceLevels).
+  Price base_{0};
 };
 
 } // namespace flatbook

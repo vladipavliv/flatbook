@@ -21,7 +21,7 @@ namespace {
 // ---------------------------------------------------------------------------
 
 struct RefFill {
-  std::uint32_t price;
+  std::int64_t price;
   std::uint32_t qty;
   bool operator==(const RefFill &) const = default;
 };
@@ -268,8 +268,8 @@ void verifyState(const Engine &engine, const RefBook &ref) {
   EXPECT_EQ(engine.openOrders(), ref.openOrders());
 
   for (std::uint32_t p = 0; p < Book::kPriceLevels; ++p) {
-    EXPECT_EQ(engine.book().volume(static_cast<Engine::PriceIdx>(p), Engine::Side::Buy), ref.volume(p, true)) << "bid level " << p;
-    EXPECT_EQ(engine.book().volume(static_cast<Engine::PriceIdx>(p), Engine::Side::Sell), ref.volume(p, false)) << "ask level " << p;
+    EXPECT_EQ(engine.book().volume(static_cast<Engine::Price>(p), Engine::Side::Buy), ref.volume(p, true)) << "bid level " << p;
+    EXPECT_EQ(engine.book().volume(static_cast<Engine::Price>(p), Engine::Side::Sell), ref.volume(p, false)) << "ask level " << p;
   }
 }
 
@@ -300,7 +300,7 @@ TEST(OrderBookProperty, MatchesNaiveReference) {
 
       Engine::Order order;
       order.type = Engine::OrderType::Limit;
-      order.price = static_cast<Engine::PriceIdx>(price);
+      order.price = static_cast<Engine::Price>(price);
       order.quantity = qty;
       order.side = buy ? Engine::Side::Buy : Engine::Side::Sell;
       switch (tif) {
@@ -347,7 +347,7 @@ TEST(OrderBookProperty, MatchesNaiveReference) {
     } else {
       if (!refIds.empty()) {
         const std::size_t idx = std::uniform_int_distribution<std::size_t>(0, refIds.size() - 1)(rng);
-        const bool e = engine.cancelOrder(engIds[idx]);
+        const bool e = engine.cancelOrder(engIds[idx]).cancelled;
         const bool r = ref.cancel(refIds[idx]);
         EXPECT_EQ(e, r) << "cancel mismatch at op " << i;
 
@@ -380,7 +380,7 @@ void verifyInvariants(const FuzzEngine &e) {
   std::size_t counted = 0;
 
   for (std::uint32_t p = 0; p < FuzzBook::kPriceLevels; ++p) {
-    const auto price = static_cast<FuzzEngine::PriceIdx>(p);
+    const auto price = static_cast<FuzzEngine::Price>(p);
     for (const auto side : {FuzzEngine::Side::Buy, FuzzEngine::Side::Sell}) {
       Volume sum = 0;
       auto id = book.head(price, side);
@@ -426,7 +426,7 @@ TEST(OrderBookProperty, InvariantsHoldUnderRandomOps) {
     if (op < 65) {
       FuzzEngine::Order order;
       order.type = FuzzEngine::OrderType::Limit;
-      order.price = static_cast<FuzzEngine::PriceIdx>(priceDist(rng));
+      order.price = static_cast<FuzzEngine::Price>(priceDist(rng));
       order.quantity = qtyDist(rng);
       order.side = side;
       order.participant = participant;
@@ -465,7 +465,7 @@ TEST(OrderBookProperty, InvariantsHoldUnderRandomOps) {
         FuzzEngine::Order replacement;
         replacement.type = FuzzEngine::OrderType::Limit;
         replacement.tif = FuzzEngine::TimeInForce::GTC;
-        replacement.price = static_cast<FuzzEngine::PriceIdx>(priceDist(rng));
+        replacement.price = static_cast<FuzzEngine::Price>(priceDist(rng));
         replacement.quantity = qtyDist(rng);
         replacement.side = e.book().sideOf(live[idx]);
         replacement.participant = e.book().participantOf(live[idx]);

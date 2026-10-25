@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "Types.hpp"
 
@@ -52,39 +53,43 @@ concept OrderIdLike = std::regular<T> && requires(T &id) {
 template <typename B>
 concept OrderBookLike = requires {
   typename B::OrderIdx;
-  typename B::PriceIdx;
+  typename B::Price;
   typename B::Side;
   typename B::ParticipantType;
 
   requires std::same_as<std::remove_cv_t<decltype(B::kHasParticipants)>, bool>;
   requires std::same_as<std::remove_cv_t<decltype(B::kPriceLevels)>, std::uint32_t>;
   requires std::same_as<std::remove_cv_t<decltype(B::INVALID_ORDER)>, typename B::OrderIdx>;
-  requires std::same_as<std::remove_cv_t<decltype(B::INVALID_PRICE)>, typename B::PriceIdx>;
+  requires std::same_as<std::remove_cv_t<decltype(B::INVALID_PRICE)>, typename B::Price>;
 } && requires(B &b, const B &cb) {
-  { b.insert(std::declval<typename B::PriceIdx>(), Quantity{},
+  { b.insert(std::declval<typename B::Price>(), Quantity{},
              std::declval<typename B::Side>(), std::declval<typename B::ParticipantType>()) }
       -> std::same_as<typename B::OrderIdx>;
-  { b.insert(std::declval<typename B::PriceIdx>(), Quantity{}, std::declval<typename B::Side>()) }
+  { b.insert(std::declval<typename B::Price>(), Quantity{}, std::declval<typename B::Side>()) }
       -> std::same_as<typename B::OrderIdx>;
 
   { b.remove(std::declval<typename B::OrderIdx>()) } -> std::same_as<bool>;
   { cb.isLive(std::declval<typename B::OrderIdx>()) } -> std::same_as<bool>;
 
   { cb.sideOf(std::declval<typename B::OrderIdx>()) } -> std::same_as<typename B::Side>;
-  { cb.volume(std::declval<typename B::PriceIdx>(), std::declval<typename B::Side>()) }
+  { cb.volume(std::declval<typename B::Price>(), std::declval<typename B::Side>()) }
       -> std::same_as<Volume>;
-  { cb.head(std::declval<typename B::PriceIdx>(), std::declval<typename B::Side>()) }
+  { cb.head(std::declval<typename B::Price>(), std::declval<typename B::Side>()) }
       -> std::same_as<typename B::OrderIdx>;
   { cb.nextOf(std::declval<typename B::OrderIdx>()) } -> std::same_as<typename B::OrderIdx>;
   { cb.qty(std::declval<typename B::OrderIdx>()) } -> std::same_as<Quantity>;
   { cb.participantOf(std::declval<typename B::OrderIdx>()) }
       -> std::same_as<typename B::ParticipantType>;
 
-  { cb.bestBid() } -> std::same_as<typename B::PriceIdx>;
-  { cb.bestAsk() } -> std::same_as<typename B::PriceIdx>;
-  { cb.nextLevel(std::declval<typename B::PriceIdx>(), std::declval<typename B::Side>()) }
-      -> std::same_as<typename B::PriceIdx>;
+  { cb.bestBid() } -> std::same_as<typename B::Price>;
+  { cb.bestAsk() } -> std::same_as<typename B::Price>;
+  { cb.nextLevel(std::declval<typename B::Price>(), std::declval<typename B::Side>()) }
+      -> std::same_as<typename B::Price>;
   { cb.openOrders() } -> std::same_as<std::size_t>;
+
+  { cb.isPriceInWindow(std::declval<typename B::Price>()) } -> std::same_as<bool>;
+  { cb.base() } -> std::same_as<typename B::Price>;
+  { b.rebase(std::declval<typename B::Price>()) } -> std::same_as<std::vector<typename B::OrderIdx>>;
 
   b.clear();
 };
