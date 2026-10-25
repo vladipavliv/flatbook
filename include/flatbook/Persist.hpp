@@ -462,29 +462,17 @@ bool saveToFile(const char *path, const typename Engine::Snapshot &snap,
  * @return true on success; false on I/O error, format/version/config mismatch,
  *         checksum failure, or a malformed journal.
  */
+/**
+ * @brief Load a persisted checkpoint from a byte buffer.
+ *
+ * The fuzzable core of `loadFromFile`: parses and validates the header, checksum,
+ * snapshot and journal, and only then commits to @p engine. No file I/O.
+ *
+ * @return true on success; false on any format/checksum/config/journal error.
+ */
 template <typename Engine>
-bool loadFromFile(const char *path, Engine &engine) {
-  FILE *f = std::fopen(path, "rb");
-  if (f == nullptr) {
-    return false;
-  }
-  std::fseek(f, 0, SEEK_END);
-  const long size = std::ftell(f);
-  std::fseek(f, 0, SEEK_SET);
-  if (size < 0) {
-    std::fclose(f);
-    return false;
-  }
-  std::vector<std::uint8_t> buf(static_cast<std::size_t>(size));
-  const bool readOk =
-      size == 0 || std::fread(buf.data(), 1, static_cast<std::size_t>(size), f) ==
-                      static_cast<std::size_t>(size);
-  std::fclose(f);
-  if (!readOk) {
-    return false;
-  }
-
-  ByteReader r(buf.data(), buf.size());
+bool loadFromBuffer(const std::uint8_t *data, std::size_t size, Engine &engine) {
+  ByteReader r(data, size);
   std::uint32_t magic = 0;
   std::uint32_t version = 0;
   std::uint64_t fp = 0;
@@ -505,7 +493,7 @@ bool loadFromFile(const char *path, Engine &engine) {
   if (payloadLen != r.remaining()) {
     return false;
   }
-  if (fnv1a64(buf.data() + (buf.size() - payloadLen), payloadLen) != checksum) {
+  if (fnv1a64(data + (size - payloadLen), payloadLen) != checksum) {
     return false;
   }
 
@@ -528,6 +516,30 @@ bool loadFromFile(const char *path, Engine &engine) {
   engine.restore(*snap);
   (void)replayInto(journal, engine);
   return true;
+}
+
+template <typename Engine>
+bool loadFromFile(const char *path, Engine &engine) {
+  FILE *f = std::fopen(path, "rb");
+  if (f == nullptr) {
+    return false;
+  }
+  std::fseek(f, 0, SEEK_END);
+  const long size = std::ftell(f);
+  std::fseek(f, 0, SEEK_SET);
+  if (size < 0) {
+    std::fclose(f);
+    return false;
+  }
+  std::vector<std::uint8_t> buf(static_cast<std::size_t>(size));
+  const bool readOk =
+      size == 0 || std::fread(buf.data(), 1, static_cast<std::size_t>(size), f) ==
+                      static_cast<std::size_t>(size);
+  std::fclose(f);
+  if (!readOk) {
+    return false;
+  }
+  return loadFromBuffer(buf.data(), buf.size(), engine);
 }
 
 } // namespace flatbook

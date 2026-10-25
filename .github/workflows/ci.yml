@@ -147,10 +147,25 @@ jobs:
           -DFLATBOOK_BUILD_EXAMPLES=OFF
 
       - name: Build
-        run: cmake --build build --target flatbook_fuzz -j
+        run: cmake --build build -j
 
-      - name: Fuzz
-        run: ./build/fuzz/flatbook_fuzz -max_total_time=60 -timeout=2
+      - name: Fuzz engine
+        run: ./build/fuzz/flatbook_fuzz -max_total_time=40 -timeout=2
+
+      - name: Fuzz persistence
+        run: ./build/fuzz/flatbook_fuzz_persist fuzz/corpus -max_total_time=40 -timeout=2
+
+      - name: Fuzz LOBSTER parser
+        run: ./build/fuzz/flatbook_fuzz_lobster_line -max_total_time=20 -timeout=2
+
+  version-check:
+    name: version-consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check version consistency
+        run: python3 scripts/check_version.py .
 
   tidy:
     name: clang-tidy
@@ -180,3 +195,24 @@ jobs:
             echo "#include <flatbook/$b>" | c++ -std=c++20 -Iinclude -fsyntax-only -x c++ -
           done
           echo "all headers are self-contained"
+
+  arm64:
+    name: gcc-aarch64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DFLATBOOK_BUILD_TESTS=ON
+          -DFLATBOOK_BUILD_BENCHMARKS=OFF
+          -DFLATBOOK_BUILD_EXAMPLES=OFF
+          -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wconversion -Werror"
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ./build/tests/flatbook_tests
