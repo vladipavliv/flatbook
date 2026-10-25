@@ -4,7 +4,7 @@ from conan.tools.cmake import CMake, cmake_layout
 
 class FlatbookConan(ConanFile):
     name = "flatbook"
-    version = "0.1.0"
+    version = "0.2.0"
     license = "MIT"
     author = "Vladimir Pavliv <voldodimir@gmail.com>"
     url = "https://github.com/vladipavliv/flatbook"

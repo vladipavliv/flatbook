@@ -141,7 +141,7 @@ Fills are reported through a caller-supplied callback (a template parameter, no
 
 ## Status and limitations
 
-Version **0.1.0** - the API is not yet stable; `0.x` releases may break it (see
+Version **0.2.0** - the API is not yet stable; `0.x` releases may break it (see
 Versioning). The core is single-threaded and deterministic: suitable for
 backtesting, simulation and as a low-latency prototype. It is **not** a turnkey
 exchange - no sessions/auctions/risk checks, one price-time priority, no

@@ -9,7 +9,7 @@ While the project is in `0.x`, the minor version may introduce breaking API
 changes (`0.1.0` → `0.2.0`); patch releases (`0.1.0` → `0.1.1`) are
 backward-compatible fixes only.
 
-## [Unreleased]
+## [0.2.0] - 2026-10-26
 
 Initial development. No stable release yet.
 

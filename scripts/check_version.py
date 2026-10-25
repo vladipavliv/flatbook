@@ -28,11 +28,17 @@ def main() -> int:
         (root / "conanfile.py").read_text(),
         re.MULTILINE,
     )
+    pyproject = re.search(
+        r'^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"',
+        (root / "pyproject.toml").read_text(),
+        re.MULTILINE,
+    )
 
     versions = {
         "CMakeLists.txt": cmake.group(1) if cmake else None,
         "vcpkg.json": vcpkg.group(1) if vcpkg else None,
         "conanfile.py": conan.group(1) if conan else None,
+        "pyproject.toml": pyproject.group(1) if pyproject else None,
     }
 
     ok = True
