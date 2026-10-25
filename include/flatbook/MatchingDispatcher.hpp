@@ -359,7 +359,7 @@ private:
 
   struct Worker {
     explicit Worker(uint32_t id) : id{id} {}
-    uint32_t id;
+    const uint32_t id;
     SpscQueue<QueueCapacity> input;
     SpscQueue<QueueCapacity> output;
     std::thread thread;
@@ -611,17 +611,28 @@ private:
 #endif
   }
 
-  std::vector<uint32_t> workerCores_;
-  bool realTime_{false};
+  // --- Configuration (immutable after construction) ---
+  const std::vector<uint32_t> workerCores_;
+  const bool realTime_;
+
+  // --- Event sink (invoked from the collector thread) ---
   Callback onEvent_;
-  std::unique_ptr<uint32_t[]> workerOf_;
-  std::unique_ptr<Engine[]> books_;
+
+  // --- Shards and worker assignment ---
+  std::unique_ptr<uint32_t[]> workerOf_; ///< symbol index -> worker index
+  std::unique_ptr<Engine[]> books_;      ///< one engine per symbol
   std::vector<std::unique_ptr<Worker>> workers_;
+
+  // --- Lifecycle ---
   std::thread collector_;
   std::atomic<bool> stop_{false};
   std::atomic<bool> started_{false};
+
+  // --- Counters / diagnostics ---
   Stats stats_{};
   std::exception_ptr callbackError_{};
+
+  // --- Collector idle-wait (futex) ---
   alignas(64) std::atomic<std::uint32_t> collectorWaitWord_{0};
   alignas(64) std::atomic<bool> collectorSleeping_{false};
 };

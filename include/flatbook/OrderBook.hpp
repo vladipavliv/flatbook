@@ -599,15 +599,19 @@ private:
   }
 
 private:
-  std::array<Node, Size> nodes_{};
-  std::array<PriceLevel, PriceLevels> levels_{};
+  // --- Flat storage (direct-indexed) ---
+  std::array<Node, Size> nodes_{};                 ///< order slots (slot 0 = sentinel)
+  std::array<PriceLevel, PriceLevels> levels_{};   ///< price levels, both sides
 
+  // --- Best-price discovery ---
   Bitmap<PriceLevels> bidMask_;
   Bitmap<PriceLevels> askMask_;
 
+  // --- Order-id recycling ---
   IdPool<Size, Id> idPool_;
 
-  /// Logical price mapped to slot 0. The window is [base_, base_ + PriceLevels).
+  // --- Price window ---
+  /// Logical price mapped to slot 0; the window is [base_, base_ + PriceLevels).
   Price base_{0};
 };
 

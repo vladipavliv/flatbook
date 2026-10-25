@@ -589,8 +589,9 @@ private:
   }
 
 private:
-  Book book_;
-  Sequence nextSeq_{1};
+  // --- State ---
+  Book book_;            ///< the price-time order book
+  Sequence nextSeq_{1};  ///< next sequence number to assign
 };
 
 } // namespace flatbook

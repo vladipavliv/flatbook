@@ -101,6 +101,7 @@ public:
   }
 
 private:
+  // --- LIFO free list + next fresh id ---
   std::array<Id, Size> freeStack_{};
   uint32_t freeTop_{};
   Id next_{Id::fromIndex(1)};

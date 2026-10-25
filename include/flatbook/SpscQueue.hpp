@@ -194,14 +194,16 @@ private:
     }
   }
 
+  // --- Producer side ---
   alignas(64) std::atomic<size_t> tail_{0};
   alignas(64) size_t headCache_{0};
 
+  // --- Consumer side ---
   alignas(64) std::atomic<size_t> head_{0};
   alignas(64) size_t tailCache_{0};
 
+  // --- Consumer cursor + ring buffer ---
   alignas(64) size_t readCursor_{0};
-
   alignas(64) uint8_t buffer_[BUFFER_SIZE];
 };
 
