@@ -18,6 +18,7 @@ endif()
 option(FLATBOOK_BUILD_BENCHMARKS "Build benchmarks" ${FLATBOOK_BUILD_BENCHMARKS_DEFAULT})
 option(FLATBOOK_BUILD_EXAMPLES "Build examples" ${FLATBOOK_BUILD_BENCHMARKS_DEFAULT})
 option(FLATBOOK_BUILD_FUZZER "Build libFuzzer target (Clang only)" OFF)
+option(FLATBOOK_BUILD_PYTHON "Build Python bindings (nanobind)" OFF)
 option(FLATBOOK_NATIVE "Compile with -march=native (GNU/Clang)" OFF)
 
 if(FLATBOOK_NATIVE)
@@ -60,6 +61,10 @@ endif()
 
 if(FLATBOOK_BUILD_FUZZER)
     add_subdirectory(fuzz)
+endif()
+
+if(FLATBOOK_BUILD_PYTHON)
+    add_subdirectory(python)
 endif()
 
 find_package(Doxygen QUIET)

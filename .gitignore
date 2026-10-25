@@ -4,6 +4,7 @@ build-asan/
 build-tsan/
 build-fuzz/
 build-tidy/
+build-py/
 cmake-build-*/
 *.o
 *.obj
