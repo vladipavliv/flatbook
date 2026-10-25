@@ -4,6 +4,8 @@
 #include <atomic>
 #include <cstdint>
 #include <random>
+#include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include "flatbook/MatchingDispatcher.hpp"
@@ -253,6 +255,139 @@ TEST(MatchingDispatcher, StopDrainsPendingOrders) {
   dispatcher.stop();
 
   EXPECT_EQ(results.load(std::memory_order_relaxed), kOrders);
+}
+
+TEST(MatchingDispatcher, EventsCarryCorrelationId) {
+  using Dispatcher = MatchingDispatcher<1, Book>;
+  std::atomic<bool> gotResult{false};
+  std::atomic<bool> gotCancel{false};
+  std::uint64_t resultCorr = 0;
+  std::uint64_t cancelCorr = 0;
+  OrderIdx restingId{};
+
+  Dispatcher dispatcher({.workerCores = {}}, [&](const Dispatcher::Event &ev) {
+    if (ev.kind == Dispatcher::Event::Kind::Result) {
+      resultCorr = ev.correlationId;
+      restingId = ev.result.orderId;
+      gotResult.store(true, std::memory_order_release);
+    } else if (ev.kind == Dispatcher::Event::Kind::Cancel) {
+      cancelCorr = ev.correlationId;
+      gotCancel.store(true, std::memory_order_release);
+    }
+  });
+
+  Order buy{};
+  buy.type = Engine::OrderType::Limit;
+  buy.tif = Engine::TimeInForce::GTC;
+  buy.price = 100;
+  buy.quantity = 1;
+  buy.side = Engine::Side::Buy;
+
+  dispatcher.start();
+  dispatcher.addOrder(0, buy, 42);
+
+  for (int i = 0; i < 1000000 && !gotResult.load(std::memory_order_acquire); ++i) {
+    std::this_thread::yield();
+  }
+  ASSERT_TRUE(gotResult.load(std::memory_order_acquire));
+
+  dispatcher.cancelOrder(0, restingId, 43);
+  for (int i = 0; i < 1000000 && !gotCancel.load(std::memory_order_acquire); ++i) {
+    std::this_thread::yield();
+  }
+  dispatcher.stop();
+
+  EXPECT_EQ(resultCorr, 42u);
+  EXPECT_EQ(cancelCorr, 43u);
+}
+
+TEST(MatchingDispatcher, TrySubmitReportsFull) {
+  using Dispatcher = MatchingDispatcher<1, Book, 1 << 4>; // small input queue
+  std::atomic<size_t> results{0};
+  Dispatcher dispatcher({.workerCores = {}}, [&](const Dispatcher::Event &ev) {
+    if (ev.kind == Dispatcher::Event::Kind::Result) {
+      results.fetch_add(1, std::memory_order_relaxed);
+    }
+  });
+
+  Order buy{};
+  buy.type = Engine::OrderType::Limit;
+  buy.tif = Engine::TimeInForce::GTC;
+  buy.price = 100;
+  buy.quantity = 1;
+  buy.side = Engine::Side::Buy;
+
+  // Not started: the worker is not draining, so the input queue fills up.
+  size_t accepted = 0;
+  bool rejected = false;
+  for (int i = 0; i < 100000; ++i) {
+    if (dispatcher.tryAddOrder(0, buy, 0)) {
+      ++accepted;
+    } else {
+      rejected = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(rejected);
+  EXPECT_GT(accepted, 0u);
+  EXPECT_GT(dispatcher.stats().submitted.load(), 0u);
+  EXPECT_GT(dispatcher.stats().rejected.load(), 0u);
+
+  dispatcher.start();
+  dispatcher.stop();
+  EXPECT_EQ(results.load(), accepted);
+}
+
+TEST(MatchingDispatcher, StatsCountEvents) {
+  using Dispatcher = MatchingDispatcher<1, Book>;
+  Dispatcher dispatcher({.workerCores = {}}, [](const Dispatcher::Event &) {});
+
+  Order buy{};
+  buy.type = Engine::OrderType::Limit;
+  buy.tif = Engine::TimeInForce::GTC;
+  buy.price = 100;
+  buy.quantity = 1;
+  buy.side = Engine::Side::Buy;
+  Order sell{};
+  sell.type = Engine::OrderType::Limit;
+  sell.tif = Engine::TimeInForce::GTC;
+  sell.price = 100;
+  sell.quantity = 1;
+  sell.side = Engine::Side::Sell;
+
+  dispatcher.start();
+  dispatcher.addOrder(0, buy, 0);  // rests -> one Result
+  dispatcher.addOrder(0, sell, 0); // crosses -> one Fill + one Result
+  dispatcher.stop();
+
+  EXPECT_EQ(dispatcher.stats().submitted.load(), 2u);
+  EXPECT_EQ(dispatcher.stats().results.load(), 2u);
+  EXPECT_EQ(dispatcher.stats().fills.load(), 1u);
+  EXPECT_EQ(dispatcher.stats().cancels.load(), 0u);
+}
+
+TEST(MatchingDispatcher, CallbackExceptionIsCaptured) {
+  using Dispatcher = MatchingDispatcher<1, Book>;
+  std::atomic<int> calls{0};
+  Dispatcher dispatcher({.workerCores = {}}, [&](const Dispatcher::Event &) {
+    calls.fetch_add(1, std::memory_order_relaxed);
+    throw std::runtime_error("boom");
+  });
+
+  Order buy{};
+  buy.type = Engine::OrderType::Limit;
+  buy.tif = Engine::TimeInForce::GTC;
+  buy.price = 100;
+  buy.quantity = 1;
+  buy.side = Engine::Side::Buy;
+
+  dispatcher.start();
+  dispatcher.addOrder(0, buy, 0);
+  dispatcher.addOrder(0, buy, 0);
+  dispatcher.stop(); // must not std::terminate
+
+  EXPECT_NE(dispatcher.callbackError(), nullptr);
+  EXPECT_GE(calls.load(), 1);
 }
 
 } // namespace

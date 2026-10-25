@@ -4,6 +4,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <thread>
@@ -75,6 +76,9 @@ public:
     enum class Kind : uint8_t { Fill, Result, Cancel };
     Kind kind{Kind::Fill};
     uint32_t symbolIdx{0};
+    /// Opaque caller-supplied tag echoed back, for correlating async acks with
+    /// the submission that produced them.
+    std::uint64_t correlationId{0};
     union {
       Fill fill;
       AddResult result;
@@ -84,6 +88,15 @@ public:
     // Fill/AddResult have default member initializers (non-trivial ctors), so
     // the union needs an explicit constructor that activates the trivial bool.
     Event() noexcept : cancelled{false} {}
+  };
+
+  /// Runtime counters, incremented across threads; read with load().
+  struct Stats {
+    std::atomic<std::uint64_t> submitted{0}; ///< Commands enqueued (blocking + try).
+    std::atomic<std::uint64_t> rejected{0};  ///< try* commands dropped (input full).
+    std::atomic<std::uint64_t> fills{0};     ///< Fill events emitted.
+    std::atomic<std::uint64_t> results{0};   ///< Result events emitted.
+    std::atomic<std::uint64_t> cancels{0};   ///< Cancel events emitted.
   };
 
   /// Invoked from the collector thread, one event at a time, in per-symbol order.
@@ -154,41 +167,96 @@ public:
     }
   }
 
-  /// Submit an order for a symbol. Callable from a single ingress thread.
-  /// The outcome is delivered asynchronously via a Result event.
-  void addOrder(uint32_t symbolIdx, const Order &order) {
+  /// Submit an order for a symbol (blocking). Callable from a single ingress
+  /// thread. The outcome is delivered asynchronously via a Result event; the
+  /// optional @p correlationId is echoed back on every event it produces.
+  void addOrder(uint32_t symbolIdx, const Order &order, std::uint64_t correlationId = 0) {
     Command cmd;
     cmd.kind = Command::Kind::Add;
     cmd.symbolIdx = symbolIdx;
+    cmd.correlationId = correlationId;
     cmd.order = order;
     post(symbolIdx, cmd);
   }
 
-  /// Cancel a resting order. The outcome (true/false) is delivered via a
-  /// Cancel event.
-  void cancelOrder(uint32_t symbolIdx, OrderIdx id) {
+  /// Non-blocking addOrder: returns false when the worker's input queue is
+  /// full, so the caller can apply its own backpressure policy (drop, retry,
+  /// or shed load) instead of blocking.
+  [[nodiscard]]
+  bool tryAddOrder(uint32_t symbolIdx, const Order &order, std::uint64_t correlationId = 0) {
+    Command cmd;
+    cmd.kind = Command::Kind::Add;
+    cmd.symbolIdx = symbolIdx;
+    cmd.correlationId = correlationId;
+    cmd.order = order;
+    return tryPost(symbolIdx, cmd);
+  }
+
+  /// Cancel a resting order (blocking). The outcome is delivered via a Cancel
+  /// event carrying @p correlationId.
+  void cancelOrder(uint32_t symbolIdx, OrderIdx id, std::uint64_t correlationId = 0) {
     Command cmd;
     cmd.kind = Command::Kind::Cancel;
     cmd.symbolIdx = symbolIdx;
+    cmd.correlationId = correlationId;
     cmd.orderId = id;
     post(symbolIdx, cmd);
   }
 
-  /// Cancel-and-replace a resting order. The outcome is delivered via a Result
-  /// event (Rejected if the id is stale or the replacement is invalid).
-  void modify(uint32_t symbolIdx, OrderIdx id, const Order &replacement) {
+  /// Non-blocking cancelOrder; see tryAddOrder.
+  [[nodiscard]]
+  bool tryCancelOrder(uint32_t symbolIdx, OrderIdx id, std::uint64_t correlationId = 0) {
+    Command cmd;
+    cmd.kind = Command::Kind::Cancel;
+    cmd.symbolIdx = symbolIdx;
+    cmd.correlationId = correlationId;
+    cmd.orderId = id;
+    return tryPost(symbolIdx, cmd);
+  }
+
+  /// Cancel-and-replace a resting order (blocking). The outcome is delivered
+  /// via a Result event carrying @p correlationId.
+  void modify(uint32_t symbolIdx, OrderIdx id, const Order &replacement,
+              std::uint64_t correlationId = 0) {
     Command cmd;
     cmd.kind = Command::Kind::Modify;
     cmd.symbolIdx = symbolIdx;
+    cmd.correlationId = correlationId;
     cmd.orderId = id;
     cmd.order = replacement;
     post(symbolIdx, cmd);
+  }
+
+  /// Non-blocking modify; see tryAddOrder.
+  [[nodiscard]]
+  bool tryModify(uint32_t symbolIdx, OrderIdx id, const Order &replacement,
+                 std::uint64_t correlationId = 0) {
+    Command cmd;
+    cmd.kind = Command::Kind::Modify;
+    cmd.symbolIdx = symbolIdx;
+    cmd.correlationId = correlationId;
+    cmd.orderId = id;
+    cmd.order = replacement;
+    return tryPost(symbolIdx, cmd);
   }
 
   /// @return Number of worker threads.
   [[nodiscard]]
   size_t workerCount() const noexcept {
     return workers_.size();
+  }
+
+  /// @return Runtime counters (read with load()).
+  [[nodiscard]]
+  const Stats &stats() const noexcept {
+    return stats_;
+  }
+
+  /// @return The first exception thrown by the callback, or nullptr. Safe to
+  ///         read after stop() (the collector is joined there).
+  [[nodiscard]]
+  std::exception_ptr callbackError() const noexcept {
+    return callbackError_;
   }
 
   /// @return Read-only access to a symbol's engine (e.g. for assertions/tests).
@@ -202,6 +270,7 @@ private:
     enum class Kind : uint8_t { Add, Cancel, Modify };
     Kind kind{Kind::Add};
     uint32_t symbolIdx{0};
+    std::uint64_t correlationId{0};
     Order order{};      ///< Add: the order; Modify: the replacement.
     OrderIdx orderId{}; ///< Cancel/Modify: the resting order id to act on.
   };
@@ -224,14 +293,28 @@ private:
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     }
+    stats_.submitted.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  /// Single-attempt enqueue: false when the worker's input queue is full.
+  [[nodiscard]]
+  bool tryPost(uint32_t symbolIdx, const Command &cmd) {
+    assert(symbolIdx < SymbolCount);
+    Worker &w = *workers_[workerOf_[symbolIdx]];
+    if (w.input.write(cmd)) {
+      stats_.submitted.fetch_add(1, std::memory_order_relaxed);
+      return true;
+    }
+    stats_.rejected.fetch_add(1, std::memory_order_relaxed);
+    return false;
   }
 
   void process(Worker &w, const Command &cmd) {
     Engine &book = books_[cmd.symbolIdx];
     switch (cmd.kind) {
     case Command::Kind::Add: {
-      const auto result = book.addOrder(cmd.order, [&](const Fill &f) { pushFill(w, cmd.symbolIdx, f); });
-      pushResult(w, cmd.symbolIdx, result);
+      const auto result = book.addOrder(cmd.order, [&](const Fill &f) { pushFill(w, cmd, f); });
+      pushResult(w, cmd, result);
       break;
     }
     case Command::Kind::Cancel: {
@@ -239,32 +322,38 @@ private:
       Event e;
       e.kind = Event::Kind::Cancel;
       e.symbolIdx = cmd.symbolIdx;
+      e.correlationId = cmd.correlationId;
       e.cancelled = ok;
       pushOutput(w, e);
+      stats_.cancels.fetch_add(1, std::memory_order_relaxed);
       break;
     }
     case Command::Kind::Modify: {
-      const auto result = book.modify(cmd.orderId, cmd.order, [&](const Fill &f) { pushFill(w, cmd.symbolIdx, f); });
-      pushResult(w, cmd.symbolIdx, result);
+      const auto result = book.modify(cmd.orderId, cmd.order, [&](const Fill &f) { pushFill(w, cmd, f); });
+      pushResult(w, cmd, result);
       break;
     }
     }
   }
 
-  void pushFill(Worker &w, uint32_t symbolIdx, const Fill &f) {
+  void pushFill(Worker &w, const Command &cmd, const Fill &f) {
     Event e;
     e.kind = Event::Kind::Fill;
-    e.symbolIdx = symbolIdx;
+    e.symbolIdx = cmd.symbolIdx;
+    e.correlationId = cmd.correlationId;
     e.fill = f;
     pushOutput(w, e);
+    stats_.fills.fetch_add(1, std::memory_order_relaxed);
   }
 
-  void pushResult(Worker &w, uint32_t symbolIdx, const AddResult &r) {
+  void pushResult(Worker &w, const Command &cmd, const AddResult &r) {
     Event e;
     e.kind = Event::Kind::Result;
-    e.symbolIdx = symbolIdx;
+    e.symbolIdx = cmd.symbolIdx;
+    e.correlationId = cmd.correlationId;
     e.result = r;
     pushOutput(w, e);
+    stats_.results.fetch_add(1, std::memory_order_relaxed);
   }
 
   void pushOutput(Worker &w, const Event &e) {
@@ -305,7 +394,16 @@ private:
       for (auto &wp : workers_) {
         const size_t n = wp->output.readBatch(batch, SpscQueue<QueueCapacity>::MAX_BATCH_SIZE);
         for (size_t i = 0; i < n; ++i) {
-          onEvent_(batch[i]);
+          if (!callbackError_) {
+            try {
+              onEvent_(batch[i]);
+            } catch (...) {
+              // Do not let a throwing callback kill the collector: record the
+              // first exception and stop delivering (events are still drained
+              // so the system does not deadlock).
+              callbackError_ = std::current_exception();
+            }
+          }
         }
         if (n != 0) {
           any = true;
@@ -354,6 +452,8 @@ private:
   std::thread collector_;
   std::atomic<bool> stop_{false};
   std::atomic<bool> started_{false};
+  Stats stats_{};
+  std::exception_ptr callbackError_{};
 };
 
 } // namespace flatbook
