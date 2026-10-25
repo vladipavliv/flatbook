@@ -15,6 +15,7 @@ add_executable(flatbook_tests
     src/TestOrderBook.cpp
     src/TestOrderBookContainer.cpp
     src/TestProperty.cpp
+    src/TestSpsc.cpp
 )
 
 target_link_libraries(flatbook_tests
