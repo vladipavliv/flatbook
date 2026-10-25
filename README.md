@@ -1,7 +1,7 @@
 # FlatBook - Deterministic Order Book
 
 A header-only, allocation-free order book for C++20, built around direct-indexed arrays and a hierarchical bitmap.
-No heap allocation, no exceptions, no locks in the core - with flat per-operation latency (best-bid/ask and insert/remove are O(1)) - plus an optional lock-free sharding layer.
+No heap allocation, no exceptions, no locks on the per-order hot path - with flat per-operation latency (best-bid/ask and insert/remove are O(1)) - plus an optional lock-free sharding layer.
 
 [![CI](https://github.com/vladipavliv/flatbook/actions/workflows/ci.yml/badge.svg)](https://github.com/vladipavliv/flatbook/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
