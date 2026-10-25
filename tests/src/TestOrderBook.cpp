@@ -1131,5 +1131,14 @@ TEST(OrderBook, RestOrderDoesNotMatch) {
   EXPECT_EQ(e.openOrders(), 1u);
 }
 
+TEST(OrderBook, ResultStructsStaySmall) {
+  // The result structs ride the SPSC and the fill callback; guard against
+  // accidental bloat (the exact layout is not part of the API).
+  static_assert(sizeof(Engine::AddResult) <= 24);
+  static_assert(sizeof(Engine::CancelResult) <= 24);
+  static_assert(sizeof(Engine::Fill) <= 32);
+  SUCCEED();
+}
+
 } // namespace
 } // namespace flatbook

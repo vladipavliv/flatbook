@@ -13,6 +13,19 @@ backward-compatible fixes only.
 
 Initial development. No stable release yet.
 
+### Breaking changes
+
+- `cancelOrder` returns `CancelResult { cancelled, seq, reason }` (was a `bool`).
+- `MatchingEngine::rebase` returns `RebaseResult { cancelled, seq }` (was a vector).
+- `AddResult::reason` (`Reason`) and `CancelResult::reason` added; the `Reason`
+  enum values were expanded and renamed (`Invalid` → `InvalidQuantity` /
+  `InvalidPostOnly` / `PriceOutOfWindow`, `PostOnly` → `PostOnlyWouldCross`,
+  `Fok` → `FokInsufficientLiquidity`, `SelfTrade` → `StpCancelNewest`,
+  `Capacity` → `BookFull`).
+- `MatchingDispatcher` requires `GenerationalId` ids and its event callback is a
+  template parameter (via `makeDispatcher`) rather than `std::function`.
+- `OrderBook` gains a `Rebaseable` template parameter.
+
 ### Added
 
 - `OrderBook`: allocation-free, deterministic price-time priority book built on
@@ -32,7 +45,10 @@ Initial development. No stable release yet.
 - Price window: logical `Price` (int64) mapped to a fixed-width slot window via
   a runtime `base_`; `rebase()` shifts it (optional, `Rebaseable=false` compiles
   it out); out-of-window limit prices are rejected with a reason.
-- `AddResult::reason` (`Reason`: Invalid/PostOnly/Fok/SelfTrade/Capacity).
+- `AddResult::reason` / `CancelResult::reason` with granular `Reason` codes
+  (InvalidQuantity, InvalidPostOnly, PriceOutOfWindow, PostOnlyWouldCross,
+  FokInsufficientLiquidity, BookFull, StpCancelNewest, UnknownOrder,
+  SideMismatch, UnsupportedModify).
 - `MatchingEngine::restOrder()` / `reduce()`: feed-driven "insert without
   matching" and execute-by-id primitives for market-data replay.
 - `Journal` + `snapshot()`/`restore()`/`snapshotInto()`: deterministic operation
