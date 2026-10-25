@@ -1,0 +1,44 @@
+# Сборка и артефакты
+build/
+build-asan/
+cmake-build-*/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+
+# Ninja
+.ninja*
+compile_commands.json
+
+# Qt
+*.pro.user
+*.pro.user.*
+*.qmlproject.user
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Тесты/бенчмарки (если хочешь не коммитить бинарники)
+flatbook/tests/flatbook_tests
+flatbook/benchmarks/flatbook_bench
+
+# Логи
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Личный роадмап (не в репе)
+ROADMAP.md

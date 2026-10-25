@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: gcc-release
+            cxx: g++
+            build_type: Release
+            flags: "-Wall -Wextra -Wconversion"
+          - name: gcc-debug-asan-ubsan
+            cxx: g++
+            build_type: Debug
+            flags: "-Wall -Wextra -Wconversion -fsanitize=address,undefined -fno-omit-frame-pointer"
+          - name: clang-release
+            cxx: clang++
+            build_type: Release
+            flags: "-Wall -Wextra -Wconversion"
+          - name: clang-debug-asan-ubsan
+            cxx: clang++
+            build_type: Debug
+            flags: "-Wall -Wextra -Wconversion -fsanitize=address,undefined -fno-omit-frame-pointer"
+          - name: clang-libc++
+            cxx: clang++
+            build_type: Release
+            flags: "-Wall -Wextra -Wconversion -stdlib=libc++"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang
+        if: contains(matrix.cxx, 'clang')
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Install libc++
+        if: matrix.name == 'clang-libc++'
+        run: sudo apt-get update && sudo apt-get install -y libc++-dev libc++abi-dev
+
+      - name: Configure
+        env:
+          CXX: ${{ matrix.cxx }}
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DCMAKE_CXX_FLAGS="${{ matrix.flags }}"
+          -DFLATBOOK_BUILD_TESTS=ON
+          -DFLATBOOK_BUILD_BENCHMARKS=OFF
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    name: msvc-release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -A x64
+          -DCMAKE_CXX_FLAGS="/W4 /permissive-"
+          -DFLATBOOK_BUILD_TESTS=ON
+          -DFLATBOOK_BUILD_BENCHMARKS=OFF
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  coverage:
+    name: gcc-coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-O0 --coverage"
+          -DFLATBOOK_BUILD_TESTS=ON
+          -DFLATBOOK_BUILD_BENCHMARKS=OFF
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Generate coverage
+        run: |
+          pip install gcovr
+          mkdir -p coverage-report
+          gcovr -r . --filter 'include/.*' --txt
+          gcovr -r . --filter 'include/.*' --html-details coverage-report/index.html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage-report/
