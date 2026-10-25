@@ -6,16 +6,16 @@ Measured with Google Benchmark, GCC 15, `-O3` (add `-DFLATBOOK_NATIVE=ON` for
 > **Reproducibility note:** the numbers below are single-run medians or
 > medians-of-10, illustrative rather than a rigorous claim. They were measured
 > on one machine; for anything you publish, record the CPU model, OS, and fixed
-> CPU frequency (`performance` governor), and regenerate on a quiet machine —
+> CPU frequency (`performance` governor), and regenerate on a quiet machine -
 > CI runners are noisy and have no stable frequency.
 
 The benchmark sweeps three book configurations and two price-generation modes
 (see `benchmarks/`):
 
-- **Uniform** — prices drawn uniformly across the full configured tick range. An
+- **Uniform** - prices drawn uniformly across the full configured tick range. An
   adversarial stress pattern that exposes how the structure behaves when the
   occupied range is wide.
-- **Clustered** — a synthetic mid-price random-walks slowly, each order's price a
+- **Clustered** - a synthetic mid-price random-walks slowly, each order's price a
   small gaussian offset from it, approximating real microstructure.
 
 ## Add latency
@@ -47,7 +47,7 @@ The map grows with the price range (every level lookup chases a tree node, every
 insert allocates); FlatBook stays flat because its price discovery is a constant
 number of bitmap levels and it allocates nothing.
 
-The add-only, 50/50 crossing mix above is the *best case* for `std::map` — half
+The add-only, 50/50 crossing mix above is the *best case* for `std::map` - half
 the orders match and never insert. The per-workload picture (uniform, 1,024
 levels):
 
@@ -65,7 +65,7 @@ O(k) scan of the level queue plus an erase; FlatBook cancels by id in O(1).
 ## CppTrader baseline
 
 FlatBook is also measured against [CppTrader](https://github.com/chronoxor/CppTrader)'s
-optimized market manager — the same flat-array + sorted-price-level technique,
+optimized market manager - the same flat-array + sorted-price-level technique,
 vendored under its MIT license in `benchmarks/src/reference/cpptrader/`. It is a
 market-data replay container (it maintains levels but does not match), so the
 comparison is on the resting-only path only. Median of 10 runs:
@@ -79,7 +79,7 @@ comparison is on the resting-only path only. Median of 10 runs:
 CppTrader stores price levels in a `std::vector` sorted by price and finds a
 level by scanning linearly back from the best price, and inserting a *new* level
 shifts every element after it (a memmove). A far-away level therefore pays two
-O(levels) penalties — a scan plus a shift — where FlatBook pays neither: price
+O(levels) penalties - a scan plus a shift - where FlatBook pays neither: price
 *is* the array index (O(1) insert), and the hierarchical bitmap finds the best
 price in O(1). Near the touch (clustered) the scan is short and the insert lands
 at the end (~105 ns, flat); on wide-range uniform flow both penalties bite, and
@@ -100,7 +100,7 @@ latency percentiles (TSC-based, 100k samples per row, FlatBook `BookSize`
 
 FlatBook's tail stays in tens-to-hundreds of nanoseconds; the reference
 containers blow into microseconds on wide price ranges. The `max` column (not
-shown) is a rare 1-in-100k scheduler/cache outlier, not the book itself — clean
+shown) is a rare 1-in-100k scheduler/cache outlier, not the book itself - clean
 tails need core pinning and fixed CPU frequency, so treat these as indicative,
 like the averages above. Note that the TSC timer overhead (tens of cycles) is
 comparable to the ~10 ns p50, so the smallest numbers are near the measurement
@@ -158,8 +158,8 @@ reject path.
 ![order types](order_type.png)
 
 **5. CppTrader optimized baseline (resting-only, log scale).** The CppTrader
-line explodes on uniform — its sorted-vector levels pay an O(levels) scan plus
-shift per far-away insert — while FlatBook stays flat.
+line explodes on uniform - its sorted-vector levels pay an O(levels) scan plus
+shift per far-away insert - while FlatBook stays flat.
 
 ![CppTrader vs price range](cpptrader_vs_price_levels.png)
 

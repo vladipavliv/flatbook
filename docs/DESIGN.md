@@ -4,14 +4,14 @@
 
 The book hands out an **order id** from `addOrder`. In a single-threaded,
 synchronous flow that id is only ever used within one call, so a plain dense
-index is enough — that is the default.
+index is enough - that is the default.
 
 The moment an id escapes a synchronous call (a gateway sends an order to the
 engine, then later sends a `cancel` referencing that id over an async boundary),
 two stale-id hazards appear:
 
-1. the order was **closed** and its slot freed — a late `cancel` must be a no-op, not a match;
-2. the slot was **recycled** for a *different* order — a late `cancel` must not hit the wrong order.
+1. the order was **closed** and its slot freed - a late `cancel` must be a no-op, not a match;
+2. the slot was **recycled** for a *different* order - a late `cancel` must not hit the wrong order.
 
 The fix is a **generation**: pack a per-slot counter into the id and bump it on
 every reuse, so a stale id (old generation) never aliases the slot's current
@@ -33,14 +33,14 @@ using GenBook = flatbook::OrderBook<1 << 15, 1 << 10,
   the id has one; `remove(id)` rejects when `node.gen != id.generation()`.
 - **One comparison covers all three cases.** `closed` (generation already moved
   on), `recycled` (moved on again), and `live` (matches) are all distinguished by
-  the same `==` — no separate "alive/dead" status enum.
+  the same `==` - no separate "alive/dead" status enum.
 
 ### Zero-cost by default
 
 `RawId<Size>` (the default) is a thin wrapper whose `generation()` is a constant
 `0` and `bumpGeneration()` is a no-op. The generation field in each slot is a
 `[[no_unique_address]]` empty type, so the non-generational book is
-byte-for-byte identical to a plain index book — liveness is still just
+byte-for-byte identical to a plain index book - liveness is still just
 `qty != 0`.
 
 | Id type | `Node` (32K/1K) | `Node` (131K/16K) | order id |
@@ -56,8 +56,8 @@ You pay for the generation counter only when you actually ask for ABA protection
 LIFO recycling is deliberate: it reuses the most recently freed slots, keeping
 the hot working set in cache. Its only downside is that those same hot slots get
 their generation bumped fastest, so a narrow counter would wrap sooner. Rather
-than slow that down — a LIFO→FIFO hybrid adds a branch on the hot path to work
-around a problem you can instead avoid — the counter is made wide.
+than slow that down - a LIFO→FIFO hybrid adds a branch on the hot path to work
+around a problem you can instead avoid - the counter is made wide.
 
 The id's storage is `uint32_t` when `index bits + generation bits ≤ 32`, else
 `uint64_t`. For a 16-bit index, up to 16 generation bits are "free" (the id stays
@@ -67,7 +67,7 @@ the width is a template parameter you can raise.
 
 ## Data structures
 
-- **Direct-indexed price levels.** `levels_[slot]` — O(1), no hashing, no
+- **Direct-indexed price levels.** `levels_[slot]` - O(1), no hashing, no
   collisions, no load-factor degradation. The trade-off is explicit: you reserve
   memory for the entire configured window up front.
 - **Hierarchical (multi-level) bitmap** for best-bid/best-ask discovery. Each
@@ -102,11 +102,11 @@ fills and state.
 
 FlatBook splits its API into two categories by how they handle bad input:
 
-- **Validated** — always safe, no preconditions. `OrderBook::insert()` and
+- **Validated** - always safe, no preconditions. `OrderBook::insert()` and
   `MatchingEngine::addOrder()` / `modify()` reject invalid input (zero quantity,
   out-of-window price, bad order-type/TIF combinations) and return
   `INVALID_ORDER` / `Result::Rejected` instead of misbehaving.
-- **Precondition-guarded** — cheap accessors and trusted internals that assume a
+- **Precondition-guarded** - cheap accessors and trusted internals that assume a
   valid id / in-window price: `qty()`, `priceOf()`, `sideOf()`, `participantOf()`,
   `order()`, `level()`, `head()`, `volume()`, `nextOf()`, `IdPool::release()`,
   `Bitmap::set/reset/contains` and the engine's private `reduce()`. These are

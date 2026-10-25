@@ -1,8 +1,8 @@
-# FlatBook — Deterministic Order Book
+# FlatBook - Deterministic Order Book
 
 A header-only, allocation-free order book and matching engine for C++20, built around direct-indexed arrays and a hierarchical bitmap.
 
-No heap allocation, no exceptions, no locks on the per-order hot path — flat per-operation latency (best-bid/ask and insert/remove are O(1)) — plus an optional lock-free sharding layer.
+No heap allocation, no exceptions, no locks on the per-order hot path - flat per-operation latency (best-bid/ask and insert/remove are O(1)) - plus an optional lock-free sharding layer.
 
 > The one cold exception: `rebase()` (an explicit window-shift) allocates a
 > vector of cancelled ids. It is off the hot path and can be compiled out with
@@ -14,6 +14,19 @@ No heap allocation, no exceptions, no locks on the per-order hot path — flat p
 [![Header-only](https://img.shields.io/badge/header--only-ff69b4.svg)]()
 
 Tested with GCC / Clang (libstdc++ & libc++) / MSVC; CI runs ASan+UBSan, TSan, clang-tidy, libFuzzer and coverage.
+
+## Contents
+
+- [Quickstart](#quickstart)
+- [Feature matrix](#feature-matrix)
+- [Price window and rebase](#price-window-and-rebase)
+- [Order ids and determinism](#order-ids-and-determinism)
+- [Architecture](#architecture)
+- [Status and limitations](#status-and-limitations)
+- [Performance](#performance)
+- [Install / use as a dependency](#install--use-as-a-dependency)
+- [Building](#building)
+- [Versioning](#versioning)
 
 ## Quickstart
 
@@ -40,7 +53,7 @@ case Engine::Result::Rejected:  break; // nothing executed; see r.reason
 }
 ```
 
-> Large books store their arrays inline (hundreds of KB) — allocate them on the
+> Large books store their arrays inline (hundreds of KB) - allocate them on the
 > heap (or `static`), not the stack.
 
 Run the examples in [`examples/`](examples/) (`example_basic`, `example_dispatcher`, `example_persistence`, `example_lobster_replay`).
@@ -74,7 +87,7 @@ via `slot = price - base_`: slot 0 is `base_`, and the window spans
   outside the new window are cancelled and their ids returned.
 
 For a venue with a fixed price band, size `PriceLevels` to cover the band and
-reject everything else — no rebase needed. For a simulator with unbounded
+reject everything else - no rebase needed. For a simulator with unbounded
 prices, `rebase()` follows the price (a cold O(n) operation). Instantiate with
 `OrderBook<..., Rebaseable=false>` to compile `rebase()` out entirely and keep
 the core strictly allocation-free.
@@ -82,7 +95,7 @@ the core strictly allocation-free.
 ## Order ids and determinism
 
 `addOrder` returns an order id. The default `RawId<Size>` is a plain dense index
-(no overhead) — enough when an id is used only within one synchronous call. The
+(no overhead) - enough when an id is used only within one synchronous call. The
 moment an id crosses an async boundary (a later `cancel` referencing an earlier
 order), two hazards appear: the order may have been **closed** (id freed), or
 its slot **recycled** for a different order. A stale id must then be a no-op,
@@ -90,7 +103,7 @@ not a wrong match.
 
 `GenerationalId<Size, GenBits>` packs a per-slot generation into the id and
 bumps it on every reuse, so a stale id never aliases the slot's current
-occupant. Use it whenever ids escape a synchronous call — including the
+occupant. Use it whenever ids escape a synchronous call - including the
 `MatchingDispatcher`, which requires it (`static_assert`).
 
 ```cpp
@@ -101,7 +114,7 @@ using GenBook = flatbook::OrderBook<1 << 15, 1 << 10,
 The matching engine is fully **deterministic**: a monotonic `Sequence` is stamped
 on every result and fill, ids are recycled LIFO, and there is no hashing,
 randomness or clock. Replaying the same operations reproduces the same ids,
-fills and state — the foundation for the journal, snapshot/restore and
+fills and state - the foundation for the journal, snapshot/restore and
 persistence. See [docs/DESIGN.md](docs/DESIGN.md) for the full design and the
 safety model.
 
@@ -109,12 +122,12 @@ safety model.
 
 Three layers:
 
-- **`OrderBook`** — a pure price-time priority data structure: ordered levels,
+- **`OrderBook`** - a pure price-time priority data structure: ordered levels,
   FIFO within a level, O(1) best-bid/best-ask and O(1) insert/remove. No
   crossing, no order-type semantics, no events.
-- **`MatchingEngine<Book>`** — the matching layer: price-time crossing, order
+- **`MatchingEngine<Book>`** - the matching layer: price-time crossing, order
   types, time-in-force, self-trade prevention and fill reporting.
-- **`MatchingDispatcher<SymbolCount, Book>`** — the sharding layer: `SymbolCount`
+- **`MatchingDispatcher<SymbolCount, Book>`** - the sharding layer: `SymbolCount`
   engines across worker threads, fanned back into one callback thread.
 
 Fills are reported through a caller-supplied callback (a template parameter, no
@@ -122,10 +135,10 @@ Fills are reported through a caller-supplied callback (a template parameter, no
 
 ## Status and limitations
 
-Version **0.1.0** — the API is not yet stable; `0.x` releases may break it (see
+Version **0.1.0** - the API is not yet stable; `0.x` releases may break it (see
 Versioning). The core is single-threaded and deterministic: suitable for
 backtesting, simulation and as a low-latency prototype. It is **not** a turnkey
-exchange — no sessions/auctions/risk checks, one price-time priority, no
+exchange - no sessions/auctions/risk checks, one price-time priority, no
 market-data distribution. Battle hardening (audit, real-feed replay validation,
 external users) is the roadmap, not a TODO.
 
