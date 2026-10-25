@@ -47,6 +47,7 @@ flatbook/benchmarks/flatbook_bench
 __pycache__/
 *.pyc
 .venv/
+.pytest_cache/
 
 # Личный роадмап (не в репе)
 ROADMAP.md
