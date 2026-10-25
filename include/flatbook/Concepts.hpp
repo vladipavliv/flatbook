@@ -91,6 +91,10 @@ concept OrderBookLike = requires {
   { cb.base() } -> std::same_as<typename B::Price>;
   { b.rebase(std::declval<typename B::Price>()) } -> std::same_as<std::vector<typename B::OrderIdx>>;
 
+  typename B::Snapshot;
+  { cb.snapshot() } -> std::same_as<typename B::Snapshot>;
+  { b.restore(std::declval<const typename B::Snapshot &>()) } -> std::same_as<void>;
+
   b.clear();
 };
 

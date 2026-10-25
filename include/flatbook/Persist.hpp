@@ -19,7 +19,7 @@
 namespace flatbook {
 
 /// File format version. Bump on any incompatible format change.
-inline constexpr std::uint32_t kPersistVersion = 2;
+inline constexpr std::uint32_t kPersistVersion = 3;
 /// File magic ("FLBK").
 inline constexpr std::uint32_t kPersistMagic = 0x4B424C46;
 
@@ -234,15 +234,19 @@ void writeAddResult(ByteWriter &w, const typename Engine::AddResult &a) {
   writeId(w, a.orderId);
   w.write(a.remaining);
   w.write(a.seq);
+  w.write(static_cast<std::uint8_t>(a.reason));
 }
 
 template <typename Engine>
 bool readAddResult(ByteReader &r, typename Engine::AddResult &a) noexcept {
   std::uint8_t result = 0;
-  if (!r.read(result) || !readId(r, a.orderId) || !r.read(a.remaining) || !r.read(a.seq)) {
+  std::uint8_t reason = 0;
+  if (!r.read(result) || !readId(r, a.orderId) || !r.read(a.remaining) || !r.read(a.seq) ||
+      !r.read(reason)) {
     return false;
   }
   a.result = static_cast<typename Engine::Result>(result);
+  a.reason = static_cast<typename Engine::Reason>(reason);
   return true;
 }
 

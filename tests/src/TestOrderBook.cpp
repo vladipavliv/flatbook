@@ -392,6 +392,41 @@ TEST(OrderBook, PriceOutOfRangeRejected) {
 
   auto r = submit(e, limit(Book::kPriceLevels, 5, Side::Buy), fills);
   EXPECT_EQ(r.result, Result::Rejected);
+  EXPECT_EQ(r.reason, Engine::Reason::Invalid);
+}
+
+TEST(OrderBook, RejectReasonsAreDistinct) {
+  Engine e;
+  Fills fills;
+
+  // Post-only that would cross -> PostOnly.
+  submit(e, limit(100, 5, Side::Sell), fills);
+  auto postOnly = submit(e,
+                         {.type = OrderType::Limit,
+                          .tif = TimeInForce::GTC,
+                          .postOnly = true,
+                          .price = 100,
+                          .quantity = 5,
+                          .side = Side::Buy},
+                         fills);
+  EXPECT_EQ(postOnly.result, Result::Rejected);
+  EXPECT_EQ(postOnly.reason, Engine::Reason::PostOnly);
+
+  // FOK that cannot fill -> Fok.
+  auto fok = submit(e,
+                    {.type = OrderType::Limit,
+                     .tif = TimeInForce::FOK,
+                     .price = 100,
+                     .quantity = 10,
+                     .side = Side::Buy},
+                    fills);
+  EXPECT_EQ(fok.result, Result::Rejected);
+  EXPECT_EQ(fok.reason, Engine::Reason::Fok);
+
+  // A normal filled order has no reason.
+  auto filled = submit(e, limit(100, 5, Side::Buy), fills);
+  EXPECT_EQ(filled.result, Result::Filled);
+  EXPECT_EQ(filled.reason, Engine::Reason::None);
 }
 
 TEST(OrderBook, SequenceIsMonotonic) {

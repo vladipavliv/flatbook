@@ -17,8 +17,8 @@ bool sameFill(const Fill &a, const Fill &b) noexcept {
 
 template <typename AddResult>
 bool sameAddResult(const AddResult &a, const AddResult &b) noexcept {
-  return a.result == b.result && a.orderId == b.orderId && a.remaining == b.remaining &&
-         a.seq == b.seq;
+  return a.result == b.result && a.reason == b.reason && a.orderId == b.orderId &&
+         a.remaining == b.remaining && a.seq == b.seq;
 }
 
 template <typename CancelResult>
@@ -49,9 +49,10 @@ bool sameFills(const std::vector<Fill> &a, const std::vector<Fill> &b) noexcept 
  * exact same ids, fills and state - the reproducibility / recovery layer,
  * complementary to a snapshot (which fast-forwards the replay).
  *
- * The journal does not record clear(): clear() resets the sequence counter and
- * invalidates ids, so a journaled stream must not call it (start a new journal
- * instead).
+ * The journal does not record clear() or reduce(): clear() resets the sequence
+ * counter and invalidates ids (start a new journal instead), and reduce() is a
+ * feed-driven execute-by-id primitive without a sequence. A journaled stream
+ * must not call either, or the replay will silently diverge from the state.
  *
  * @tparam Engine A MatchingEngine type.
  */
