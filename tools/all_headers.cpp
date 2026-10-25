@@ -13,5 +13,6 @@
 #include <flatbook/SpinWait.hpp>
 #include <flatbook/SpscQueue.hpp>
 #include <flatbook/Types.hpp>
+#include <flatbook/Wait.hpp>
 
 int main() { return 0; }

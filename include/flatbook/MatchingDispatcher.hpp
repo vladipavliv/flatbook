@@ -19,6 +19,7 @@
 #include "MatchingEngine.hpp"
 #include "SpinWait.hpp"
 #include "SpscQueue.hpp"
+#include "Wait.hpp"
 
 namespace flatbook {
 
@@ -174,9 +175,12 @@ public:
     if (!started_.compare_exchange_strong(expected, false, std::memory_order_acq_rel)) {
       return;
     }
-    // 1. Tell workers to stop; they drain their input fully before exiting.
+    // 1. Tell workers to stop and wake any that are asleep on the futex.
     for (auto &w : workers_) {
       w->stop.store(true, std::memory_order_release);
+      if (w->sleeping.load(std::memory_order_acquire)) {
+        detail::futexNotify(w->waitWord);
+      }
     }
     // 2. Join workers: any remaining orders are processed and pushed to output.
     for (auto &w : workers_) {
@@ -184,8 +188,11 @@ public:
         w->thread.join();
       }
     }
-    // 3. Stop the collector; it does a final drain after the workers are done.
+    // 3. Stop the collector; wake it if asleep, then join (final drain).
     stop_.store(true, std::memory_order_release);
+    if (collectorSleeping_.load(std::memory_order_acquire)) {
+      detail::futexNotify(collectorWaitWord_);
+    }
     if (collector_.joinable()) {
       collector_.join();
     }
@@ -330,6 +337,10 @@ private:
     SpscQueue<QueueCapacity> output;
     std::thread thread;
     std::atomic<bool> stop{false};
+    // Hybrid idle wait: the worker spins, then sets `sleeping` and blocks on
+    // `waitWord`; the ingress wakes it (fetch_add + futex) only when asleep.
+    alignas(64) std::atomic<std::uint32_t> waitWord{0};
+    alignas(64) std::atomic<bool> sleeping{false};
   };
 
   void post(uint32_t symbolIdx, const Command &cmd) {
@@ -344,6 +355,9 @@ private:
       }
     }
     stats_.submitted.fetch_add(1, std::memory_order_relaxed);
+    if (w.sleeping.load(std::memory_order_acquire)) [[unlikely]] {
+      detail::futexNotify(w.waitWord);
+    }
   }
 
   /// Single-attempt enqueue: false when the symbol is invalid or the worker's
@@ -357,6 +371,9 @@ private:
     Worker &w = *workers_[workerOf_[symbolIdx]];
     if (w.input.write(cmd)) {
       stats_.submitted.fetch_add(1, std::memory_order_relaxed);
+      if (w.sleeping.load(std::memory_order_acquire)) [[unlikely]] {
+        detail::futexNotify(w.waitWord);
+      }
       return true;
     }
     stats_.rejected.fetch_add(1, std::memory_order_relaxed);
@@ -443,6 +460,9 @@ private:
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     }
+    if (collectorSleeping_.load(std::memory_order_acquire)) [[unlikely]] {
+      detail::futexNotify(collectorWaitWord_);
+    }
   }
 
   void workerLoop(Worker &w) {
@@ -454,17 +474,38 @@ private:
         do {
           process(w, cmd);
         } while (w.input.read(cmd));
-      } else if (w.stop.load(std::memory_order_acquire)) {
+        continue;
+      }
+      if (w.stop.load(std::memory_order_acquire)) {
         // stop is set after the last post; drain anything that raced in.
         while (w.input.read(cmd)) {
           process(w, cmd);
         }
         break;
-      } else if (!++waiter) {
-        // Idle: give up the CPU. A short sleep bounds idle-wake latency; for
-        // sub-microsecond wakeup use a futex/eventfd at the deployment level.
-        std::this_thread::sleep_for(std::chrono::microseconds(1));
       }
+      if (++waiter) {
+        continue; // still within the spin/yield budget
+      }
+      // Spin budget exhausted: hybrid spin-then-block on a futex.
+      const std::uint32_t word = w.waitWord.load(std::memory_order_acquire);
+      w.sleeping.store(true, std::memory_order_release);
+      // Double-check: a command may have raced in since the last read.
+      if (w.input.read(cmd)) {
+        w.sleeping.store(false, std::memory_order_release);
+        waiter.reset();
+        process(w, cmd);
+        continue;
+      }
+      if (w.stop.load(std::memory_order_acquire)) {
+        w.sleeping.store(false, std::memory_order_release);
+        while (w.input.read(cmd)) {
+          process(w, cmd);
+        }
+        break;
+      }
+      detail::futexWait(w.waitWord, word);
+      w.sleeping.store(false, std::memory_order_release);
+      waiter.reset();
     }
   }
 
@@ -497,9 +538,27 @@ private:
     while (!stop_.load(std::memory_order_acquire)) {
       if (drain()) {
         waiter.reset();
-      } else if (!++waiter) {
-        std::this_thread::sleep_for(std::chrono::microseconds(1)); // idle: give up the CPU
+        continue;
       }
+      if (++waiter) {
+        continue; // still within the spin/yield budget
+      }
+      // Spin budget exhausted: hybrid spin-then-block on a futex.
+      const std::uint32_t word = collectorWaitWord_.load(std::memory_order_acquire);
+      collectorSleeping_.store(true, std::memory_order_release);
+      // Double-check before sleeping (avoid a lost wakeup).
+      if (drain()) {
+        collectorSleeping_.store(false, std::memory_order_release);
+        waiter.reset();
+        continue;
+      }
+      if (stop_.load(std::memory_order_acquire)) {
+        collectorSleeping_.store(false, std::memory_order_release);
+        break;
+      }
+      detail::futexWait(collectorWaitWord_, word);
+      collectorSleeping_.store(false, std::memory_order_release);
+      waiter.reset();
     }
     // Final drain: workers are already joined, so this catches everything.
     while (drain()) {
@@ -536,6 +595,8 @@ private:
   std::atomic<bool> started_{false};
   Stats stats_{};
   std::exception_ptr callbackError_{};
+  alignas(64) std::atomic<std::uint32_t> collectorWaitWord_{0};
+  alignas(64) std::atomic<bool> collectorSleeping_{false};
 };
 
 } // namespace flatbook
