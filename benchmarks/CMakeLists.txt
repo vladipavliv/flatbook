@@ -18,3 +18,6 @@ target_link_libraries(flatbook_bench PRIVATE flatbook benchmark::benchmark)
 
 add_executable(flatbook_tail src/TailLatency.cpp)
 target_link_libraries(flatbook_tail PRIVATE flatbook)
+
+add_executable(flatbook_dispatcher_bench src/BenchDispatcher.cpp)
+target_link_libraries(flatbook_dispatcher_bench PRIVATE flatbook)

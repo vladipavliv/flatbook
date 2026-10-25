@@ -12,7 +12,7 @@ namespace flatbook {
  * @brief Single-producer / single-consumer byte-stream ring queue.
  *
  * Cached head/tail indices keep the hot path off the shared atomics: the
- * common case is a relaxed load, a memcpy and one release store — the acquire
+ * common case is a relaxed load, a memcpy and one release store - the acquire
  * exchange only happens at the empty/full boundary. Batch write/read amortize
  * that boundary check across up to MAX_BATCH_SIZE elements, and a single flat
  * byte buffer means no per-message overhead or allocation.
@@ -60,7 +60,9 @@ public:
     return readBatchImpl(reinterpret_cast<uint8_t *>(msgs), count, sizeof(T));
   }
 
-  [[nodiscard]] bool write(const uint8_t *data, size_t size) noexcept { return writeImpl(data, size); }
+  [[nodiscard]] bool write(const uint8_t *data, size_t size) noexcept {
+    return writeImpl(data, size);
+  }
 
   [[nodiscard]] bool read(uint8_t *data, size_t size) noexcept { return readImpl(data, size); }
 

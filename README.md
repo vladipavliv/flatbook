@@ -23,10 +23,11 @@ FlatBook removes the variable: every price level and every order slot has a fixe
 
 ## Architecture
 
-The library is split into two layers:
+The library is split into three layers:
 
 - **`OrderBook`** - a pure price-time priority data structure. It maintains ordered levels, FIFO within a level, O(1) best-bid/best-ask and O(1) insert/remove. No crossing, no order-type semantics, no events.
-- **`MatchingEngine<OrderBook>`** - the matching layer. It owns a book and implements price-time crossing, order types, time-in-force and fill reporting on top of the book's primitives.
+- **`MatchingEngine<Book>`** - the matching layer. It owns a book and implements price-time crossing, order types, time-in-force and fill reporting on top of the book's primitives.
+- **`MatchingDispatcher<SymbolCount, Book>`** - the sharding layer. It owns `SymbolCount` engines, shards them across worker threads, and fans every event back into one callback thread.
 
 Fills are reported through a caller-supplied callback, so the engine stays allocation-free on the hot path.
 
@@ -89,6 +90,55 @@ Rests the order without ever crossing the opposite side. If it would match immed
 | `Resting` | Remainder resting in the book (`orderId` holds the resting id). |
 | `Cancelled` | Unfilled remainder discarded (IOC, or market with leftover). |
 | `Rejected` | Nothing executed (invalid input, FOK impossible, post-only would cross). |
+
+## Multi-threaded dispatcher
+
+For many symbols, `MatchingDispatcher<SymbolCount, Book>` shards `SymbolCount`
+engines across a configurable number of worker threads. Orders for a symbol are
+always processed by the worker that owns that symbol (per-symbol order is
+preserved), and all fills/results/cancel acks are fanned back into a single
+collector thread, so the callback is never invoked concurrently:
+
+```cpp
+#include <flatbook/MatchingDispatcher.hpp>
+
+using Book = flatbook::OrderBook<1 << 15, 1 << 10>;
+using Dispatcher = flatbook::MatchingDispatcher<1024, Book>; // 1024 symbols
+
+Dispatcher dispatcher({.workerCores = {0, 1, 2, 3}},
+    [](const Dispatcher::Event &ev) {
+        // ev.kind  : Fill | Result | Cancel
+        // ev.symbolIdx, ev.fill / ev.result / ev.cancelled
+    });
+
+dispatcher.start();
+dispatcher.addOrder(symbolIdx, order);        // async
+dispatcher.cancelOrder(symbolIdx, orderId);   // async
+dispatcher.modify(symbolIdx, orderId, repl);  // async
+dispatcher.stop();
+```
+
+Submit orders from a single ingress thread; events arrive on one collector
+thread in per-symbol order. `workerCores` pins workers to cores and `realTime`
+switches them to `SCHED_FIFO` (both Linux, best-effort).
+
+**No dynamic rerouting.** The symbol → worker assignment is fixed (round-robin).
+Dynamic load rebalancing would either pause a symbol mid-move or add per-order
+overhead - both break the flat-latency guarantee - so it is deliberately left to
+the deployment layer (static partitioning, or multiple dispatcher instances
+behind a router).
+
+The lock-free queue backing the dispatcher is `SpscQueue`
+(`include/flatbook/SpscQueue.hpp`): a bounded byte-stream SPSC ring with cached
+head/tail indices and batched read/write.
+
+**Throughput.** End-to-end the dispatcher moves ~17.9M orders/s (mixed-crossing,
+256 symbols; `flatbook_dispatcher_bench`). That is about 2× the raw engine's
+per-order cost (~57 ns vs ~27 ns) - the price of routing through the ingress,
+two SPSC hops and the collector. Adding workers does not raise this rate on a
+light mixed-crossing workload: the single ingress and collector threads, not
+the matching workers, are the bottleneck. The worker count buys parallelism for
+heavier per-order work (deep books), not more submit/drain bandwidth.
 
 ## Order ids: ABA-safe handles with generation
 
