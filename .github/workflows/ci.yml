@@ -113,8 +113,8 @@ jobs:
         run: |
           pip install gcovr
           mkdir -p coverage-report
-          gcovr -r . --filter 'include/.*' --txt
-          gcovr -r . --filter 'include/.*' --html-details coverage-report/index.html
+          gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --txt
+          gcovr -r . --filter 'include/.*' --gcov-ignore-parse-errors=negative_hits.warn --html-details coverage-report/index.html
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

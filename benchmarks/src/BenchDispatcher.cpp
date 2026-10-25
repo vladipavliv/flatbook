@@ -50,9 +50,11 @@ double bench(size_t workerCount, size_t orderCount, uint64_t seed) {
   }
 
   std::atomic<size_t> results{0};
+  size_t localResults = 0;
   Dispatcher dispatcher(config, [&](const Dispatcher::Event &ev) {
     if (ev.kind == Dispatcher::Event::Kind::Result) {
-      results.fetch_add(1, std::memory_order_relaxed);
+      ++localResults; // collector is single-threaded: plain increment
+      results.store(localResults, std::memory_order_relaxed);
     }
   });
 

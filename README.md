@@ -273,10 +273,10 @@ latency percentiles (TSC-based, 100k samples per row, FlatBook `BookSize`
 
 | Workload | p50 | p99.9 |
 |---|---|---|
-| FlatBook add (mixed crossing) | 10–20 ns | 70–130 ns |
-| FlatBook rest | ~10 ns | 20–40 ns |
-| std::map rest | 40–210 ns | 120 ns – 2 µs |
-| CppTrader rest (uniform) | 0.4–13 µs | 0.9–35 µs |
+| FlatBook add (mixed crossing) | 10-20 ns | 70-130 ns |
+| FlatBook rest | ~10 ns | 20-40 ns |
+| std::map rest | 40-210 ns | 120 ns - 2 µs |
+| CppTrader rest (uniform) | 0.4-13 µs | 0.9-35 µs |
 
 FlatBook's tail stays in tens-to-hundreds of nanoseconds; the reference
 containers blow into microseconds on wide price ranges. The `max` column (not
@@ -310,7 +310,7 @@ FlatBook is flat (~27 ns) across the full 256× range; `std::map` grows 73 → 1
 
 ![resting-only add vs price range](docs/rest_vs_price_levels.png)
 
-FlatBook is ~8–13 ns; `std::map` grows 72 → 278 ns (9–22×), the tree deepening with distinct price levels.
+FlatBook is ~8-13 ns; `std::map` grows 72 → 278 ns (9-22×), the tree deepening with distinct price levels.
 
 **3. Add/cancel mix (25% cancel).** The map's cancel is an O(1) index lookup plus an O(k) scan of the level queue plus an erase; FlatBook cancels by id in O(1).
 
