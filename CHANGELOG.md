@@ -26,9 +26,27 @@ Initial development. No stable release yet.
 - `SpscQueue`: lock-free single-producer/single-consumer byte-stream ring with
   cached head/tail indices and batched read/write.
 - `MatchingDispatcher`: sharded multi-symbol matching across worker threads
-  (single ingress, single collector) with add/cancel/modify.
-- Test suite: unit, container, engine, property and invariant-fuzz tests
-  (110 tests), run under ASan/UBSan and TSan.
-- CI matrix: GCC, Clang, Clang + libc++, MSVC, TSan, and coverage.
+  (single ingress, single collector) with add/cancel/modify/rebase, correlation
+  ids, non-blocking `try*` backpressure, runtime counters, a template (zero-cost)
+  event callback, and a futex-based idle wait.
+- Price window: logical `Price` (int64) mapped to a fixed-width slot window via
+  a runtime `base_`; `rebase()` shifts it (optional, `Rebaseable=false` compiles
+  it out); out-of-window limit prices are rejected with a reason.
+- `AddResult::reason` (`Reason`: Invalid/PostOnly/Fok/SelfTrade/Capacity).
+- `MatchingEngine::restOrder()` / `reduce()`: feed-driven "insert without
+  matching" and execute-by-id primitives for market-data replay.
+- `Journal` + `snapshot()`/`restore()`/`snapshotInto()`: deterministic operation
+  journal and full-state snapshot, with `replayInto` round-trip.
+- `Persist`: versioned, checksummed, atomic (temp+fsync+rename) snapshot + journal
+  checkpoint to disk, with config-fingerprint validation.
+- `Lobster` replay (`LobsterReplay` throughput benchmark and `LobsterFeed`
+  feed-driven replay), orderbook parsing, and `LobsterValidator` for validating a
+  feed against the LOBSTER orderbook file.
+- `Wait`: portable futex wait/wake with a hybrid spin-then-block idle loop.
+- Test suite: unit, container, engine, property, invariant-fuzz, journal,
+  persistence, LOBSTER and dispatcher tests, run under ASan/UBSan, TSan and
+  libFuzzer.
+- CI matrix: GCC, Clang, Clang + libc++, MSVC, TSan, coverage, clang-tidy,
+  libFuzzer, and a `-Werror` build.
 - Benchmarks against a `std::map` baseline with latency-vs-price-range plots,
   plus per-op tail-latency percentiles and a dispatcher throughput/scaling bench.
