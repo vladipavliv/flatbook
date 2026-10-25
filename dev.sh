@@ -105,6 +105,21 @@ do_tidy() {
     "$ROOT/tools/all_headers.cpp" -- -std=c++20 -I"$ROOT/include"
 }
 
+do_headers() {
+  echo "== header isolation =="
+  local ok=1
+  local h
+  for h in "$ROOT"/include/flatbook/*.hpp; do
+    local b
+    b="$(basename "$h")"
+    if ! echo "#include <flatbook/$b>" | c++ -std=c++20 -I"$ROOT/include" -fsyntax-only -x c++ - 2>/dev/null; then
+      echo "FAIL: $b is not self-contained"
+      ok=0
+    fi
+  done
+  [[ $ok -eq 1 ]] && echo "all headers are self-contained"
+}
+
 do_bench() {
   local no_build=0 refs=0 report=0
   for arg in "$@"; do
@@ -183,6 +198,7 @@ case "$cmd" in
   tsan)      do_tsan ;;
   fuzz)      do_fuzz "$@" ;;
   tidy)      do_tidy ;;
+  headers)   do_headers ;;
   bench)     do_bench "$@" ;;
   all)       do_test; do_sanitize; do_bench ;;
   help|-h|--help) usage ;;

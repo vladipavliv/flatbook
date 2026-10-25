@@ -165,3 +165,18 @@ jobs:
         run: >
           clang-tidy --header-filter='.*/include/flatbook/.*' --quiet
           tools/all_headers.cpp -- -std=c++20 -Iinclude
+
+  headers:
+    name: header-isolation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check each header compiles standalone
+        run: |
+          set -e
+          for h in include/flatbook/*.hpp; do
+            b="$(basename "$h")"
+            echo "#include <flatbook/$b>" | c++ -std=c++20 -Iinclude -fsyntax-only -x c++ -
+          done
+          echo "all headers are self-contained"
