@@ -6,6 +6,10 @@ build-fuzz/
 build-tidy/
 build-py/
 cmake-build-*/
+
+# libFuzzer evolved corpus (regenerated on every run); keep only the seed.
+fuzz/corpus/*
+!fuzz/corpus/persist_seed
 *.o
 *.obj
 *.a
