@@ -31,7 +31,7 @@ target_include_directories(flatbook
 
 target_compile_features(flatbook
     INTERFACE
-        cxx_std_23
+        cxx_std_20
 )
 
 if(FLATBOOK_BUILD_TESTS)

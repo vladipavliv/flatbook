@@ -1,11 +1,11 @@
 # FlatBook - Deterministic Order Book
 
-A header-only, allocation-free order book for C++23, built around direct-indexed arrays and a hierarchical bitmap.
+A header-only, allocation-free order book for C++20, built around direct-indexed arrays and a hierarchical bitmap.
 No heap allocation, no exceptions, no locks in the core - with flat per-operation latency (best-bid/ask and insert/remove are O(1)) - plus an optional lock-free sharding layer.
 
 [![CI](https://github.com/vladipavliv/flatbook/actions/workflows/ci.yml/badge.svg)](https://github.com/vladipavliv/flatbook/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Standard: C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue.svg)]()
+[![Standard: C++20](https://img.shields.io/badge/Standard-C%2B%2B20-blue.svg)]()
 [![Header-only](https://img.shields.io/badge/header--only-ff69b4.svg)]()
 
 > **Core is single-threaded by design.** `OrderBook` and `MatchingEngine` have
