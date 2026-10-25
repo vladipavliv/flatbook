@@ -76,7 +76,10 @@ if(DOXYGEN_FOUND)
 endif()
 
 # --- Install / find_package -------------------------------------------------
+# (skipped when building the Python wheel: only the extension module is
+# installed into site-packages then)
 
+if(NOT FLATBOOK_BUILD_PYTHON)
 install(TARGETS flatbook EXPORT flatbookTargets)
 
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/
@@ -101,3 +104,4 @@ install(FILES
     ${PROJECT_BINARY_DIR}/flatbookConfig.cmake
     ${PROJECT_BINARY_DIR}/flatbookConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/flatbook)
+endif()

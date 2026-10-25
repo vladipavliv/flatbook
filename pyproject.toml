@@ -1,0 +1,42 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "flatbook"
+version = "0.1.0"
+description = "Deterministic, allocation-free order book and matching engine for Python"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Vladimir Pavliv" }]
+keywords = ["order-book", "matching-engine", "low-latency", "backtest"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+]
+dependencies = ["numpy"]
+
+[tool.scikit-build]
+cmake.args = [
+    "-DFLATBOOK_BUILD_PYTHON=ON",
+    "-DFLATBOOK_BUILD_TESTS=OFF",
+    "-DFLATBOOK_BUILD_BENCHMARKS=OFF",
+    "-DFLATBOOK_BUILD_EXAMPLES=OFF",
+    "-DFLATBOOK_BUILD_FUZZER=OFF",
+]
+wheel.packages = []
+
+[tool.scikit-build.sdist]
+include = [
+    "include/",
+    "python/",
+    "cmake/",
+    "CMakeLists.txt",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]

@@ -67,11 +67,8 @@ nb::object makeResult(const typename Engine::AddResult &r,
   }
   nb::dict d;
   d["result"] = nb::cast(static_cast<int>(r.result));
-  if (r.orderId == Engine::INVALID_ORDER) {
-    d["order_id"] = nb::cast(-1);
-  } else {
-    d["order_id"] = nb::cast(static_cast<unsigned long long>(packId(r.orderId)));
-  }
+  d["order_id"] = nb::cast(static_cast<unsigned long long>(
+      (r.orderId == Engine::INVALID_ORDER) ? 0 : packId(r.orderId)));
   d["remaining"] = nb::cast(static_cast<unsigned>(r.remaining));
   d["seq"] = nb::cast(static_cast<unsigned long long>(r.seq));
   d["reason"] = nb::cast(static_cast<int>(r.reason));
