@@ -13,7 +13,7 @@ int main() {
   flatbook::MatchingConfig config;
   config.workerCores = {0, 1}; // two workers, symbols sharded round-robin
 
-  Dispatcher dispatcher(config, [](const Dispatcher::Event &ev) {
+  auto dispatcher = flatbook::makeDispatcher<kSymbols, Book>(config, [](const Dispatcher::Event &ev) {
     switch (ev.kind) {
     case Dispatcher::Event::Kind::Fill:
       std::printf("[sym %u] fill qty=%u @ %lld corr=%llu\n", ev.symbolIdx,

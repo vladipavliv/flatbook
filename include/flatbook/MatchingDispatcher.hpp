@@ -5,10 +5,10 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
-#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -33,6 +33,64 @@ struct MatchingConfig {
   /// Run workers with SCHED_FIFO real-time scheduling (Linux-only, best-effort;
   /// requires privileges).
   bool realTime = false;
+};
+
+/// Default no-op event callback.
+struct NoopCallback {
+  template <typename... Args>
+  constexpr void operator()(Args &&...) const noexcept {}
+};
+
+/**
+ * @brief One event delivered to a MatchingDispatcher callback.
+ *
+ * A fill, an order result, a cancel ack, or a rebase ack. The `kind` tag
+ * selects the active union member; only trivially-copyable members are used,
+ * so the SPSC memcpy stays valid.
+ *
+ * Defined at namespace scope (not nested) so it does not depend on the
+ * dispatcher's callback type and can be named independently.
+ *
+ * @tparam Book Order book type.
+ */
+template <typename Book>
+struct DispatcherEvent {
+  using Engine = MatchingEngine<Book>;
+  using OrderIdx = typename Engine::OrderIdx;
+  using AddResult = typename Engine::AddResult;
+  using Fill = typename Engine::Fill;
+  using Price = typename Engine::Price;
+  using Sequence = typename Engine::Sequence;
+
+  enum class Kind : uint8_t { Fill, Result, Cancel, Rebase };
+  Kind kind{Kind::Fill};
+  uint32_t symbolIdx{0};
+  /// Opaque caller-supplied tag echoed back, for correlating async acks with
+  /// the submission that produced them.
+  std::uint64_t correlationId{0};
+
+  /// Payload of a Cancel event: the outcome plus the affected order id and seq.
+  struct CancelEvent {
+    bool cancelled{false};
+    OrderIdx orderId{};
+    Sequence seq{0};
+  };
+  /// Payload of a Rebase event: the new window base and the rebase's sequence.
+  struct RebaseEvent {
+    Price newBase{};
+    Sequence seq{0};
+  };
+
+  union {
+    Fill fill;
+    AddResult result;
+    CancelEvent cancel;
+    RebaseEvent rebase;
+  };
+
+  // Fill/AddResult have default member initializers (non-trivial ctors), so
+  // the union needs an explicit constructor that activates a trivial member.
+  DispatcherEvent() noexcept : cancel{} {}
 };
 
 /**
@@ -61,8 +119,12 @@ struct MatchingConfig {
  * @tparam SymbolCount  Number of symbols (ticker ids 0..SymbolCount-1).
  * @tparam Book         Order book type (see @ref OrderBook).
  * @tparam QueueCapacity SPSC queue capacity per worker (power of two).
+ * @tparam Callback     Event sink type (stored by value; zero-cost, no
+ *                      std::function / heap). Prefer makeDispatcher() so the
+ *                      lambda type is deduced.
  */
-template <size_t SymbolCount, typename Book, size_t QueueCapacity = 1 << 12>
+template <size_t SymbolCount, typename Book, size_t QueueCapacity = 1 << 12,
+          typename Callback = NoopCallback>
 class MatchingDispatcher {
 public:
   using Engine = MatchingEngine<Book>;
@@ -77,41 +139,8 @@ public:
                 "MatchingDispatcher is an async boundary: it requires GenerationalId ids "
                 "(RawId aliases reused slots; see the safety model in README.md)");
 
-  /// One event delivered to the callback: a fill, an order result, a cancel ack,
-  /// or a rebase ack. The `kind` tag selects the active union member; only
-  /// trivially-copyable members are used, so the SPSC memcpy stays valid.
-  struct Event {
-    enum class Kind : uint8_t { Fill, Result, Cancel, Rebase };
-    Kind kind{Kind::Fill};
-    uint32_t symbolIdx{0};
-    /// Opaque caller-supplied tag echoed back, for correlating async acks with
-    /// the submission that produced them.
-    std::uint64_t correlationId{0};
-
-    /// Payload of a Cancel event: the outcome plus the affected order id and
-    /// the cancel's sequence.
-    struct CancelEvent {
-      bool cancelled{false};
-      OrderIdx orderId{};
-      Sequence seq{0};
-    };
-    /// Payload of a Rebase event: the new window base and the rebase's sequence.
-    struct RebaseEvent {
-      Price newBase{};
-      Sequence seq{0};
-    };
-
-    union {
-      Fill fill;
-      AddResult result;
-      CancelEvent cancel;
-      RebaseEvent rebase;
-    };
-
-    // Fill/AddResult have default member initializers (non-trivial ctors), so
-    // the union needs an explicit constructor that activates a trivial member.
-    Event() noexcept : cancel{} {}
-  };
+  /// One event delivered to the callback.
+  using Event = DispatcherEvent<Book>;
 
   /// Runtime counters, each on its own cache line to avoid false sharing
   /// between the ingress and the workers.
@@ -125,9 +154,7 @@ public:
   };
 
   /// Invoked from the collector thread, one event at a time, in per-symbol order.
-  using Callback = std::function<void(const Event &)>;
-
-  explicit MatchingDispatcher(MatchingConfig config, Callback onEvent)
+  explicit MatchingDispatcher(MatchingConfig config, Callback onEvent = Callback{})
       : workerCores_{std::move(config.workerCores)}, realTime_{config.realTime},
         onEvent_{std::move(onEvent)} {
     workerOf_ = std::make_unique<uint32_t[]>(SymbolCount);
@@ -598,5 +625,19 @@ private:
   alignas(64) std::atomic<std::uint32_t> collectorWaitWord_{0};
   alignas(64) std::atomic<bool> collectorSleeping_{false};
 };
+
+/**
+ * @brief Create a MatchingDispatcher, deducing the callback type.
+ *
+ * The callback is stored by value (zero-cost, no std::function), so a lambda
+ * with captures compiles to a single inline member and an indirect-free call
+ * from the collector thread.
+ */
+template <size_t SymbolCount, typename Book, size_t QueueCapacity = 1 << 12, typename Callback>
+MatchingDispatcher<SymbolCount, Book, QueueCapacity, std::decay_t<Callback>>
+makeDispatcher(MatchingConfig config, Callback &&onEvent) {
+  return MatchingDispatcher<SymbolCount, Book, QueueCapacity, std::decay_t<Callback>>(
+      std::move(config), std::forward<Callback>(onEvent));
+}
 
 } // namespace flatbook
