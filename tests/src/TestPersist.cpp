@@ -164,5 +164,71 @@ TEST(Persist, MissingFileFails) {
   EXPECT_FALSE(loadFromFile("flatbook_does_not_exist.bin", e));
 }
 
+TEST(Persist, CorruptFileFailsCleanly) {
+  const char *path = "flatbook_persist_corrupt.bin";
+  Engine a;
+  Journal<Engine> journal;
+  std::vector<OrderIdx> live;
+  std::mt19937_64 rng(0xBEEF);
+  Price base = 0;
+  drive(a, journal, live, rng, base, 1000);
+  ASSERT_TRUE(saveToFile(path, a.snapshot(), journal));
+
+  // Flip a byte in the payload (header is 32 bytes); the checksum must catch it.
+  {
+    std::vector<std::uint8_t> buf;
+    std::FILE *f = std::fopen(path, "rb");
+    ASSERT_NE(f, nullptr);
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    buf.resize(static_cast<std::size_t>(size));
+    ASSERT_EQ(std::fread(buf.data(), 1, buf.size(), f), buf.size());
+    std::fclose(f);
+    ASSERT_GT(buf.size(), 40u);
+    buf[40] ^= 0xFF;
+    std::FILE *f2 = std::fopen(path, "wb");
+    ASSERT_NE(f2, nullptr);
+    ASSERT_EQ(std::fwrite(buf.data(), 1, buf.size(), f2), buf.size());
+    std::fclose(f2);
+  }
+
+  Engine b;
+  EXPECT_FALSE(loadFromFile(path, b));
+  std::remove(path);
+}
+
+TEST(Persist, WideParticipantRoundTrips) {
+  const char *path = "flatbook_persist_wide.bin";
+  using WideBook = OrderBook<2048, 64, GenerationalId<2048, 24>, std::uint64_t>;
+  using WideEngine = MatchingEngine<WideBook>;
+  WideEngine a;
+  const auto snap = a.snapshot(); // checkpoint before the operation
+  Journal<WideEngine> journal;
+
+  WideEngine::Order o{};
+  o.type = WideEngine::OrderType::Limit;
+  o.tif = WideEngine::TimeInForce::GTC;
+  o.price = 10;
+  o.quantity = 5;
+  o.side = WideEngine::Side::Sell;
+  o.participant = 0xDEADBEEFCAFEF00Dull;
+
+  std::vector<WideEngine::Fill> fills;
+  const auto r = a.addOrder(o, [&](const WideEngine::Fill &f) { fills.push_back(f); });
+  ASSERT_TRUE(r.resting());
+  journal.recordAdd(o, r, fills);
+
+  ASSERT_TRUE(saveToFile(path, snap, journal));
+
+  WideEngine b;
+  ASSERT_TRUE(loadFromFile(path, b));
+  EXPECT_EQ(b.openOrders(), 1u);
+  EXPECT_EQ(b.bestAsk(), 10);
+  const auto id = b.book().head(10, WideEngine::Side::Sell);
+  EXPECT_EQ(b.book().participantOf(id), 0xDEADBEEFCAFEF00Dull);
+  std::remove(path);
+}
+
 } // namespace
 } // namespace flatbook

@@ -469,16 +469,21 @@ public:
     Price base{0};
   };
 
+  /// Fill @p out with the book's full state (no copy; use for large books).
+  void snapshotInto(Snapshot &out) const noexcept {
+    out.nodes = nodes_;
+    out.levels = levels_;
+    out.bidMask = bidMask_.snapshot();
+    out.askMask = askMask_.snapshot();
+    out.idPool = idPool_.snapshot();
+    out.base = base_;
+  }
+
   /// @return A copy of the book's full state.
   [[nodiscard]]
   Snapshot snapshot() const noexcept {
     Snapshot s;
-    s.nodes = nodes_;
-    s.levels = levels_;
-    s.bidMask = bidMask_.snapshot();
-    s.askMask = askMask_.snapshot();
-    s.idPool = idPool_.snapshot();
-    s.base = base_;
+    snapshotInto(s);
     return s;
   }
 

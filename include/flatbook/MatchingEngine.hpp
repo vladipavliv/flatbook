@@ -56,6 +56,8 @@ public:
 
   /// Whether self-trade prevention is enabled (participant keys stored).
   static constexpr bool kHasParticipants = Book::kHasParticipants;
+  /// Order-slot capacity.
+  static constexpr std::uint32_t kSize = Book::kSize;
   /// Number of configured price levels (the window width).
   static constexpr std::uint32_t kPriceLevels = Book::kPriceLevels;
   /// Participant key type (uint32_t placeholder when disabled).
@@ -368,10 +370,19 @@ public:
     Sequence nextSeq{1};
   };
 
+  /// Fill @p out with the engine's full state (no copy; use for large books
+  /// where a stack Snapshot would overflow).
+  void snapshotInto(Snapshot &out) const noexcept {
+    book_.snapshotInto(out.book);
+    out.nextSeq = nextSeq_;
+  }
+
   /// @return A copy of the engine's full state.
   [[nodiscard]]
   Snapshot snapshot() const noexcept {
-    return Snapshot{book_.snapshot(), nextSeq_};
+    Snapshot s;
+    snapshotInto(s);
+    return s;
   }
 
   /// Restore the engine's full state.
