@@ -79,6 +79,27 @@ public:
     next_ = Id::fromIndex(1);
   }
 
+  /// Raw snapshot of the pool, for serialization / restore. Carries the full
+  /// ids (generation included), so a restored pool keeps issuing the same ids.
+  struct Snapshot {
+    std::array<Id, Size> freeStack{};
+    uint32_t freeTop{0};
+    Id next{Id::fromIndex(1)};
+  };
+
+  /// @return A copy of the pool state (free list, top, next id).
+  [[nodiscard]]
+  Snapshot snapshot() const noexcept {
+    return Snapshot{freeStack_, freeTop_, next_};
+  }
+
+  /// Restore the pool state.
+  void restore(const Snapshot &s) noexcept {
+    freeStack_ = s.freeStack;
+    freeTop_ = s.freeTop;
+    next_ = s.next;
+  }
+
 private:
   std::array<Id, Size> freeStack_{};
   uint32_t freeTop_{};

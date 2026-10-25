@@ -21,3 +21,6 @@ target_link_libraries(flatbook_tail PRIVATE flatbook)
 
 add_executable(flatbook_dispatcher_bench src/BenchDispatcher.cpp)
 target_link_libraries(flatbook_dispatcher_bench PRIVATE flatbook)
+
+add_executable(flatbook_lobster_bench src/BenchLobster.cpp)
+target_link_libraries(flatbook_lobster_bench PRIVATE flatbook)

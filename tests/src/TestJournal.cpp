@@ -61,36 +61,30 @@ void expectSameState(const Engine &a, const Engine &b) {
   }
 }
 
-TEST(Journal, ReplayReproducesStateAndResults) {
-  Engine a;
-  Journal<Engine> journal;
-  std::vector<OrderIdx> live;
-
-  std::mt19937_64 rng(0x5EEDC0DE);
-  Price base = 0;
-
-  constexpr int kOps = 20000;
-  for (int i = 0; i < kOps; ++i) {
+// Drive `ops` random operations through `engine`, recording each to `journal`.
+void runOps(Engine &engine, Journal<Engine> &journal, std::vector<OrderIdx> &live,
+            std::mt19937_64 &rng, Price &base, int ops) {
+  for (int i = 0; i < ops; ++i) {
     const int r = static_cast<int>(rng() % 100);
     std::vector<Engine::Fill> fills;
 
     if (r < 8 && !live.empty()) {
       const std::size_t idx = static_cast<std::size_t>(rng() % live.size());
       const auto id = live[idx];
-      const auto res = a.cancelOrder(id);
+      const auto res = engine.cancelOrder(id);
       journal.recordCancel(id, res);
       live[idx] = live.back();
       live.pop_back();
     } else if (r < 12) {
       const Price newBase = base + static_cast<Price>(rng() % 40) - 20;
-      const auto res = a.rebase(newBase);
+      const auto res = engine.rebase(newBase);
       journal.recordRebase(newBase, res);
       base = newBase;
       // prune ids that fell out of the window (now stale)
       std::vector<OrderIdx> pruned;
       pruned.reserve(live.size());
       for (const auto id : live) {
-        if (a.book().isLive(id)) {
+        if (engine.book().isLive(id)) {
           pruned.push_back(id);
         }
       }
@@ -101,8 +95,8 @@ TEST(Journal, ReplayReproducesStateAndResults) {
       Order repl = makeOrder(rng, base);
       repl.type = Engine::OrderType::Limit;
       repl.tif = Engine::TimeInForce::GTC;
-      repl.side = a.book().sideOf(id);
-      const auto res = a.modify(id, repl, [&](const Engine::Fill &f) { fills.push_back(f); });
+      repl.side = engine.book().sideOf(id);
+      const auto res = engine.modify(id, repl, [&](const Engine::Fill &f) { fills.push_back(f); });
       journal.recordModify(id, repl, res, fills);
       live[idx] = live.back();
       live.pop_back();
@@ -111,18 +105,49 @@ TEST(Journal, ReplayReproducesStateAndResults) {
       }
     } else {
       const Order order = makeOrder(rng, base);
-      const auto res = a.addOrder(order, [&](const Engine::Fill &f) { fills.push_back(f); });
+      const auto res = engine.addOrder(order, [&](const Engine::Fill &f) { fills.push_back(f); });
       journal.recordAdd(order, res, fills);
       if (res.resting()) {
         live.push_back(res.orderId);
       }
     }
   }
+}
+
+TEST(Journal, ReplayReproducesStateAndResults) {
+  Engine a;
+  Journal<Engine> journal;
+  std::vector<OrderIdx> live;
+  std::mt19937_64 rng(0x5EEDC0DE);
+  Price base = 0;
+
+  runOps(a, journal, live, rng, base, 20000);
 
   Engine replay;
-  const std::size_t mismatches = replayInto(journal, replay);
-  EXPECT_EQ(mismatches, 0u);
+  EXPECT_EQ(replayInto(journal, replay), 0u);
   expectSameState(a, replay);
+}
+
+TEST(Journal, SnapshotThenReplayTailReproducesState) {
+  Engine a;
+  Journal<Engine> journal;
+  std::vector<OrderIdx> live;
+  std::mt19937_64 rng(0x0A11CE);
+  Price base = 0;
+
+  runOps(a, journal, live, rng, base, 5000);
+
+  // Checkpoint: snapshot A and remember the journal position.
+  const auto snap = a.snapshot();
+  const std::size_t snapIndex = journal.size();
+
+  runOps(a, journal, live, rng, base, 15000);
+
+  // Restore B from the snapshot and replay only the tail.
+  Engine b;
+  b.restore(snap);
+  EXPECT_EQ(replayInto(journal, b, snapIndex), 0u);
+  expectSameState(a, b);
 }
 
 TEST(Journal, EmptyJournalReplaysToEmptyEngine) {

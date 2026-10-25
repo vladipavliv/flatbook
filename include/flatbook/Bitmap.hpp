@@ -121,6 +121,22 @@ public:
     storage_.fill(0);
   }
 
+  /// Raw snapshot of the bitmap's storage, for serialization / restore.
+  struct Snapshot {
+    std::array<uint64_t, kTotalWords> storage{};
+  };
+
+  /// @return A copy of the raw storage.
+  [[nodiscard]]
+  Snapshot snapshot() const noexcept {
+    return Snapshot{storage_};
+  }
+
+  /// Restore the raw storage.
+  void restore(const Snapshot &s) noexcept {
+    storage_ = s.storage;
+  }
+
   /// @return Lowest set bit, or INVALID if empty.
   [[nodiscard]]
   constexpr Index min() const noexcept {

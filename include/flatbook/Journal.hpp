@@ -125,6 +125,9 @@ public:
   void clear() noexcept { entries_.clear(); }
   [[nodiscard]] const std::vector<Entry> &entries() const noexcept { return entries_; }
 
+  /// Append a raw entry (used when deserializing a persisted journal).
+  void append(Entry entry) { entries_.push_back(std::move(entry)); }
+
 private:
   std::vector<Entry> entries_;
 };
@@ -132,21 +135,26 @@ private:
 /**
  * @brief Replay a journal into a fresh engine.
  *
- * Re-executes each recorded operation in order and compares the re-derived
- * result and fills to the recorded ones.
+ * Re-executes each recorded operation in order (from @p start) and compares
+ * the re-derived result and fills to the recorded ones. Pass a non-zero
+ * @p start to replay only a tail on top of an engine restored from a snapshot.
  *
  * @param journal The recorded operations.
- * @param engine  A fresh (empty) engine; its sequence counter starts at 1.
+ * @param engine  A fresh (empty) engine, or one restored from a snapshot whose
+ *                state matches the journal up to @p start.
+ * @param start   Index of the first entry to replay (default: from the start).
  * @return The number of entries whose replayed result/fills differed from the
  *         recorded ones (0 = perfect reproduction).
  */
 template <typename Engine>
-std::size_t replayInto(const Journal<Engine> &journal, Engine &engine) {
+std::size_t replayInto(const Journal<Engine> &journal, Engine &engine, std::size_t start = 0) {
   using Fill = typename Engine::Fill;
   std::vector<Fill> fills;
   std::size_t mismatches = 0;
 
-  for (const auto &e : journal.entries()) {
+  const auto &entries = journal.entries();
+  for (std::size_t i = start; i < entries.size(); ++i) {
+    const auto &e = entries[i];
     fills.clear();
     switch (e.kind) {
     case Journal<Engine>::Kind::Add: {

@@ -56,6 +56,8 @@ public:
 
   /// Whether self-trade prevention is enabled (participant keys stored).
   static constexpr bool kHasParticipants = Book::kHasParticipants;
+  /// Number of configured price levels (the window width).
+  static constexpr std::uint32_t kPriceLevels = Book::kPriceLevels;
   /// Participant key type (uint32_t placeholder when disabled).
   using ParticipantType = typename Book::ParticipantType;
 
@@ -237,6 +239,28 @@ public:
   }
 
   /**
+   * @brief Reduce (execute against) a specific resting order by id.
+   *
+   * Feed-driven "execute by id": unlike addOrder, this reduces a named order
+   * directly, bypassing price-time priority. Used to replay market-data feeds
+   * (ITCH/LOBSTER) that reference the exact order being executed or partially
+   * cancelled. Reducing to zero removes the order and recycles its id.
+   *
+   * @param id       Live order id.
+   * @param quantity Quantity to reduce; @pre quantity <= the order's remaining
+   *                 quantity (asserted; unchecked under NDEBUG).
+   * @return true if the order was live (and reduced); false if stale.
+   */
+  [[nodiscard]]
+  bool reduce(OrderIdx id, Quantity quantity) noexcept {
+    if (!book_.isLive(id)) {
+      return false;
+    }
+    book_.reduce(id, quantity);
+    return true;
+  }
+
+  /**
    * @brief Cancel an order and submit a replacement (cancel/replace).
    *
    * The replacement must be a Limit + GTC on the same side as the original
@@ -336,6 +360,24 @@ public:
   RebaseResult rebase(Price newBase) noexcept {
     const Sequence seq = nextSeq_++;
     return {book_.rebase(newBase), seq};
+  }
+
+  /// Full state snapshot of the engine, for serialization / restore.
+  struct Snapshot {
+    typename Book::Snapshot book{};
+    Sequence nextSeq{1};
+  };
+
+  /// @return A copy of the engine's full state.
+  [[nodiscard]]
+  Snapshot snapshot() const noexcept {
+    return Snapshot{book_.snapshot(), nextSeq_};
+  }
+
+  /// Restore the engine's full state.
+  void restore(const Snapshot &s) noexcept {
+    book_.restore(s.book);
+    nextSeq_ = s.nextSeq;
   }
 
   /// @return The last sequence number assigned (0 if none yet).

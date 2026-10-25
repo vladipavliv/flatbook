@@ -459,6 +459,39 @@ public:
     return base_ + static_cast<Price>(found);
   }
 
+  /// Full state snapshot of the book, for serialization / restore.
+  struct Snapshot {
+    std::array<Node, Size> nodes{};
+    std::array<PriceLevel, PriceLevels> levels{};
+    typename Bitmap<PriceLevels>::Snapshot bidMask{};
+    typename Bitmap<PriceLevels>::Snapshot askMask{};
+    typename IdPool<Size, Id>::Snapshot idPool{};
+    Price base{0};
+  };
+
+  /// @return A copy of the book's full state.
+  [[nodiscard]]
+  Snapshot snapshot() const noexcept {
+    Snapshot s;
+    s.nodes = nodes_;
+    s.levels = levels_;
+    s.bidMask = bidMask_.snapshot();
+    s.askMask = askMask_.snapshot();
+    s.idPool = idPool_.snapshot();
+    s.base = base_;
+    return s;
+  }
+
+  /// Restore the book's full state.
+  void restore(const Snapshot &s) noexcept {
+    nodes_ = s.nodes;
+    levels_ = s.levels;
+    bidMask_.restore(s.bidMask);
+    askMask_.restore(s.askMask);
+    idPool_.restore(s.idPool);
+    base_ = s.base;
+  }
+
 private:
   /**
    * @brief Reduce a live order's quantity (partial fill).
