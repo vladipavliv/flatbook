@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "flatbook/Lobster.hpp"
+#include "flatbook/LobsterValidator.hpp"
 #include "flatbook/MatchingEngine.hpp"
 #include "flatbook/OrderBook.hpp"
 
@@ -217,6 +218,64 @@ TEST(Lobster, FeedReplayCountsRebases) {
   feed.message(3, 1, 0, 1000, true);
   EXPECT_EQ(feed.stats().rebasedAway, 1u);
   EXPECT_EQ(feed.stats().skipped, 0u);
+}
+
+namespace {
+
+using ValBook = OrderBook<256, 256, GenerationalId<256, 24>>; // window [0, 256)
+using ValEngine = MatchingEngine<ValBook>;
+
+// Writes a hand-written message + orderbook fixture and runs the validator.
+void writeFixture(const char *messagePath, const char *orderbookPath, bool corrupt) {
+  std::FILE *mf = std::fopen(messagePath, "w");
+  ASSERT_NE(mf, nullptr);
+  std::fprintf(mf, "0.0 1 1 10 100 -1\n");  // submit sell 10 @ 100 (id 1)
+  std::fprintf(mf, "0.1 1 2 5 99 1\n");     // submit buy 5 @ 99 (id 2)
+  std::fprintf(mf, "0.2 4 1 4 100 -1\n");   // execute 4 against id 1
+  std::fprintf(mf, "0.3 3 2 0 99 1\n");     // delete id 2
+  std::fclose(mf);
+
+  std::FILE *of = std::fopen(orderbookPath, "w");
+  ASSERT_NE(of, nullptr);
+  std::fprintf(of, "100 10 -9999999999 0\n"); // after msg 1: ask 100x10, no bid
+  std::fprintf(of, "100 10 99 5\n");          // after msg 2
+  std::fprintf(of, corrupt ? "100 5 99 5\n" : "100 6 99 5\n"); // after msg 3 (corrupt: wrong size)
+  std::fprintf(of, "100 6 -9999999999 0\n");  // after msg 4
+  std::fclose(of);
+}
+
+} // namespace
+
+TEST(Lobster, ValidatorMatchesFixture) {
+  const char *mp = "lobster_val_msg.csv";
+  const char *op = "lobster_val_ob.csv";
+  writeFixture(mp, op, /*corrupt=*/false);
+
+  ValEngine e;
+  const auto r = validateLobster(e, mp, op, /*numLevels=*/1);
+  std::remove(mp);
+  std::remove(op);
+
+  EXPECT_TRUE(r.ok);
+  EXPECT_EQ(r.messages, 4u);
+}
+
+TEST(Lobster, ValidatorDetectsMismatch) {
+  const char *mp = "lobster_val_msg.csv";
+  const char *op = "lobster_val_ob.csv";
+  writeFixture(mp, op, /*corrupt=*/true);
+
+  ValEngine e;
+  const auto r = validateLobster(e, mp, op, /*numLevels=*/1);
+  std::remove(mp);
+  std::remove(op);
+
+  EXPECT_FALSE(r.ok);
+  EXPECT_EQ(r.line, 3u);       // mismatch on the third message
+  EXPECT_EQ(r.level, 1u);
+  EXPECT_TRUE(r.askSide);      // ... on the ask side
+  EXPECT_EQ(r.expectedSize, 5u);
+  EXPECT_EQ(r.actualSize, 6u);
 }
 
 } // namespace
