@@ -1,0 +1,327 @@
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <thread>
+#include <vector>
+
+#if defined(__linux__)
+#include <sched.h>
+#endif
+
+#include "MatchingEngine.hpp"
+#include "SpscQueue.hpp"
+
+namespace flatbook {
+
+/**
+ * @brief Runtime configuration for MatchingDispatcher.
+ */
+struct MatchingConfig {
+  /// Core to pin each worker to, one entry per worker. Empty = one worker, no
+  /// pinning. Pinning is Linux-only and best-effort (ignored elsewhere).
+  std::vector<uint32_t> workerCores;
+  /// Run workers with SCHED_FIFO real-time scheduling (Linux-only, best-effort;
+  /// requires privileges).
+  bool realTime = false;
+};
+
+/**
+ * @brief Sharded multi-symbol matching dispatcher.
+ *
+ * Owns `SymbolCount` matching engines (one per symbol), sharded across a fixed
+ * number of worker threads. Orders for a symbol are always processed by the
+ * worker that owns that symbol, so per-symbol ordering is preserved; there is
+ * deliberately no global cross-symbol order.
+ *
+ * Data flow: the caller submits orders from a single thread (the ingress);
+ * each worker drains its input SPSC, matches against the symbol's engine, and
+ * pushes fill/result events to its output SPSC; a single collector thread
+ * drains all outputs in batches and invokes the callback from that one thread.
+ *
+ * @note Dynamic symbol rerouting (load rebalancing) is deliberately not
+ * provided: it would either pause a symbol mid-move or add per-order overhead,
+ * both of which break the flat-latency guarantee. Load balancing is a
+ * deployment-level concern (static partitioning or multiple instances).
+ *
+ * @note The `SymbolCount` engines live in a single heap allocation
+ * (`std::unique_ptr<TickerSlot[]>`), so the dispatcher object itself is small
+ * and can live on the stack.
+ *
+ * @tparam SymbolCount  Number of symbols (ticker ids 0..SymbolCount-1).
+ * @tparam Book         Order book type (see @ref OrderBook).
+ * @tparam QueueCapacity SPSC queue capacity per worker (power of two).
+ */
+template <size_t SymbolCount, typename Book, size_t QueueCapacity = 1 << 12>
+class MatchingDispatcher {
+public:
+  using Engine = MatchingEngine<Book>;
+  using Order = typename Engine::Order;
+  using OrderIdx = typename Engine::OrderIdx;
+  using AddResult = typename Engine::AddResult;
+  using Fill = typename Engine::Fill;
+
+  /// One event delivered to the callback: a fill, an order result, or a cancel ack.
+  struct Event {
+    enum class Kind : uint8_t { Fill, Result, Cancel };
+    Kind kind{Kind::Fill};
+    uint32_t symbolIdx{0};
+    Fill fill{};
+    AddResult result{};
+    bool cancelled{false};
+  };
+
+  /// Invoked from the collector thread, one event at a time, in per-symbol order.
+  using Callback = std::function<void(const Event &)>;
+
+  explicit MatchingDispatcher(MatchingConfig config, Callback onEvent)
+      : workerCores_{std::move(config.workerCores)}, realTime_{config.realTime},
+        onEvent_{std::move(onEvent)} {
+    symbols_ = std::make_unique<TickerSlot[]>(SymbolCount);
+    const size_t workerCount = config.workerCores.empty() ? 1 : config.workerCores.size();
+    workers_.reserve(workerCount);
+    for (size_t i = 0; i < workerCount; ++i) {
+      workers_.emplace_back(std::make_unique<Worker>(i));
+    }
+    // Fixed round-robin symbol -> worker assignment (rerouting is a later step).
+    for (size_t s = 0; s < SymbolCount; ++s) {
+      symbols_[s].workerId = static_cast<uint32_t>(s % workerCount);
+    }
+  }
+
+  ~MatchingDispatcher() { stop(); }
+
+  MatchingDispatcher(const MatchingDispatcher &) = delete;
+  MatchingDispatcher &operator=(const MatchingDispatcher &) = delete;
+
+  /// Start the worker threads and the collector thread.
+  void start() {
+    if (started_.exchange(true, std::memory_order_acq_rel)) {
+      return;
+    }
+    stop_.store(false, std::memory_order_release);
+    for (auto &w : workers_) {
+      w->stop.store(false, std::memory_order_release);
+      w->thread = std::thread([this, wp = w.get()] {
+        if (!workerCores_.empty()) {
+          pinToCore(workerCores_[wp->id]);
+        }
+        if (realTime_) {
+          setRealTime();
+        }
+        workerLoop(*wp);
+      });
+    }
+    collector_ = std::thread([this] { collectLoop(); });
+  }
+
+  /// Stop and join all threads. Idempotent.
+  void stop() {
+    bool expected = true;
+    if (!started_.compare_exchange_strong(expected, false, std::memory_order_acq_rel)) {
+      return;
+    }
+    // 1. Tell workers to stop; they drain their input fully before exiting.
+    for (auto &w : workers_) {
+      w->stop.store(true, std::memory_order_release);
+    }
+    // 2. Join workers: any remaining orders are processed and pushed to output.
+    for (auto &w : workers_) {
+      if (w->thread.joinable()) {
+        w->thread.join();
+      }
+    }
+    // 3. Stop the collector; it does a final drain after the workers are done.
+    stop_.store(true, std::memory_order_release);
+    if (collector_.joinable()) {
+      collector_.join();
+    }
+  }
+
+  /// Submit an order for a symbol. Callable from a single ingress thread.
+  /// The outcome is delivered asynchronously via a Result event.
+  void addOrder(uint32_t symbolIdx, const Order &order) {
+    Command cmd;
+    cmd.kind = Command::Kind::Add;
+    cmd.symbolIdx = symbolIdx;
+    cmd.order = order;
+    post(symbolIdx, cmd);
+  }
+
+  /// Cancel a resting order. The outcome (true/false) is delivered via a
+  /// Cancel event.
+  void cancelOrder(uint32_t symbolIdx, OrderIdx id) {
+    Command cmd;
+    cmd.kind = Command::Kind::Cancel;
+    cmd.symbolIdx = symbolIdx;
+    cmd.orderId = id;
+    post(symbolIdx, cmd);
+  }
+
+  /// Cancel-and-replace a resting order. The outcome is delivered via a Result
+  /// event (Rejected if the id is stale or the replacement is invalid).
+  void modify(uint32_t symbolIdx, OrderIdx id, const Order &replacement) {
+    Command cmd;
+    cmd.kind = Command::Kind::Modify;
+    cmd.symbolIdx = symbolIdx;
+    cmd.orderId = id;
+    cmd.order = replacement;
+    post(symbolIdx, cmd);
+  }
+
+  /// @return Read-only access to a symbol's engine (e.g. for assertions/tests).
+  [[nodiscard]]
+  const Engine &engine(uint32_t symbolIdx) const noexcept {
+    return symbols_[symbolIdx].book;
+  }
+
+private:
+  struct TickerSlot {
+    uint32_t workerId{0};
+    Engine book{};
+  };
+
+  struct Command {
+    enum class Kind : uint8_t { Add, Cancel, Modify };
+    Kind kind{Kind::Add};
+    uint32_t symbolIdx{0};
+    Order order{};      ///< Add: the order; Modify: the replacement.
+    OrderIdx orderId{}; ///< Cancel/Modify: the resting order id to act on.
+  };
+
+  struct Worker {
+    explicit Worker(uint32_t id) : id{id} {}
+    uint32_t id;
+    SpscQueue<QueueCapacity> input;
+    SpscQueue<QueueCapacity> output;
+    std::thread thread;
+    std::atomic<bool> stop{false};
+  };
+
+  void post(uint32_t symbolIdx, const Command &cmd) {
+    Worker &w = *workers_[symbols_[symbolIdx].workerId];
+    while (!w.input.write(cmd)) {
+      std::this_thread::yield();
+    }
+  }
+
+  void process(Worker &w, const Command &cmd) {
+    Engine &book = symbols_[cmd.symbolIdx].book;
+    switch (cmd.kind) {
+    case Command::Kind::Add: {
+      const auto result = book.addOrder(cmd.order, [&](const Fill &f) { pushFill(w, cmd.symbolIdx, f); });
+      pushResult(w, cmd.symbolIdx, result);
+      break;
+    }
+    case Command::Kind::Cancel: {
+      const bool ok = book.cancelOrder(cmd.orderId);
+      Event e;
+      e.kind = Event::Kind::Cancel;
+      e.symbolIdx = cmd.symbolIdx;
+      e.cancelled = ok;
+      pushOutput(w, e);
+      break;
+    }
+    case Command::Kind::Modify: {
+      const auto result = book.modify(cmd.orderId, cmd.order, [&](const Fill &f) { pushFill(w, cmd.symbolIdx, f); });
+      pushResult(w, cmd.symbolIdx, result);
+      break;
+    }
+    }
+  }
+
+  void pushFill(Worker &w, uint32_t symbolIdx, const Fill &f) {
+    Event e;
+    e.kind = Event::Kind::Fill;
+    e.symbolIdx = symbolIdx;
+    e.fill = f;
+    pushOutput(w, e);
+  }
+
+  void pushResult(Worker &w, uint32_t symbolIdx, const AddResult &r) {
+    Event e;
+    e.kind = Event::Kind::Result;
+    e.symbolIdx = symbolIdx;
+    e.result = r;
+    pushOutput(w, e);
+  }
+
+  void pushOutput(Worker &w, const Event &e) {
+    while (!w.output.write(e)) {
+      std::this_thread::yield();
+    }
+  }
+
+  void workerLoop(Worker &w) {
+    Command cmd;
+    for (;;) {
+      if (w.input.read(cmd)) {
+        do {
+          process(w, cmd);
+        } while (w.input.read(cmd));
+      } else if (w.stop.load(std::memory_order_acquire)) {
+        break; // input drained AND stop requested
+      } else {
+        std::this_thread::yield();
+      }
+    }
+  }
+
+  void collectLoop() {
+    Event batch[SpscQueue<QueueCapacity>::MAX_BATCH_SIZE];
+    auto drain = [&] {
+      bool any = false;
+      for (auto &wp : workers_) {
+        const size_t n = wp->output.readBatch(batch, SpscQueue<QueueCapacity>::MAX_BATCH_SIZE);
+        for (size_t i = 0; i < n; ++i) {
+          onEvent_(batch[i]);
+        }
+        if (n != 0) {
+          any = true;
+        }
+      }
+      return any;
+    };
+
+    while (!stop_.load(std::memory_order_acquire)) {
+      if (!drain()) {
+        std::this_thread::yield();
+      }
+    }
+    // Final drain: workers are already joined, so this catches everything.
+    while (drain()) {
+    }
+  }
+
+  static void pinToCore(uint32_t core) {
+#if defined(__linux__)
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(core, &set);
+    (void)sched_setaffinity(0, sizeof(set), &set);
+#else
+    (void)core;
+#endif
+  }
+
+  static void setRealTime() {
+#if defined(__linux__)
+    struct sched_param param {};
+    param.sched_priority = sched_get_priority_min(SCHED_FIFO);
+    (void)sched_setscheduler(0, SCHED_FIFO, &param);
+#endif
+  }
+
+  std::vector<uint32_t> workerCores_;
+  bool realTime_{false};
+  Callback onEvent_;
+  std::unique_ptr<TickerSlot[]> symbols_;
+  std::vector<std::unique_ptr<Worker>> workers_;
+  std::thread collector_;
+  std::atomic<bool> stop_{false};
+  std::atomic<bool> started_{false};
+};
+
+} // namespace flatbook

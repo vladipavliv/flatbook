@@ -1,6 +1,7 @@
 # Сборка и артефакты
 build/
 build-asan/
+build-tsan/
 cmake-build-*/
 *.o
 *.obj

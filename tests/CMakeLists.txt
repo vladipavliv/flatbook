@@ -11,6 +11,7 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(flatbook_tests
     src/TestBitmap.cpp
+    src/TestDispatcher.cpp
     src/TestIds.cpp
     src/TestOrderBook.cpp
     src/TestOrderBookContainer.cpp

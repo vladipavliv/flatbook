@@ -7,6 +7,7 @@ set -euo pipefail
 #   ./dev.sh setup              # create .venv + install matplotlib (one-time)
 #   ./dev.sh test               # Release build + unit tests
 #   ./dev.sh sanitize           # Debug + ASan/UBSan + tests
+#   ./dev.sh tsan               # Debug + ThreadSanitizer + tests
 #   ./dev.sh bench [--no-build] [--refs] # build + run benchmarks + plot docs/*.png
 #   ./dev.sh tail               # per-op latency percentiles (p50..p99.9/max)
 #   ./dev.sh all                # test + sanitize + bench
@@ -14,11 +15,13 @@ set -euo pipefail
 # Env:
 #   BUILD_DIR   Release build dir        (default: <repo>/build)
 #   ASAN_DIR    sanitizer build dir      (default: <repo>/build-asan)
+#   TSAN_DIR    tsan build dir           (default: <repo>/build-tsan)
 #   PYTHON      python with matplotlib   (default: <repo>/.venv/bin/python)
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
 ASAN_DIR="${ASAN_DIR:-$ROOT/build-asan}"
+TSAN_DIR="${TSAN_DIR:-$ROOT/build-tsan}"
 PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 BIN="$BUILD_DIR/benchmarks/flatbook_bench"
@@ -26,7 +29,7 @@ PLOT="$ROOT/benchmarks/plot/plot_scaling.py"
 OUT_DIR="$ROOT/docs"
 
 usage() {
-  sed -n '4,17p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '4,19p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 do_setup() {
@@ -62,6 +65,19 @@ do_sanitize() {
   ASAN_OPTIONS=detect_leaks=1 \
   UBSAN_OPTIONS=print_stacktrace=1 \
     "$ASAN_DIR/tests/flatbook_tests"
+}
+
+do_tsan() {
+  echo "== configure (Debug + ThreadSanitizer) =="
+  cmake -S "$ROOT" -B "$TSAN_DIR" \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DFLATBOOK_BUILD_TESTS=ON \
+    -DFLATBOOK_BUILD_BENCHMARKS=OFF \
+    -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wconversion -fsanitize=thread -fno-omit-frame-pointer"
+  echo "== build =="
+  cmake --build "$TSAN_DIR" -j
+  echo "== test =="
+  "$TSAN_DIR/tests/flatbook_tests"
 }
 
 do_bench() {
@@ -132,6 +148,7 @@ case "$cmd" in
   test)      do_test ;;
   tail)      do_tail ;;
   sanitize)  do_sanitize ;;
+  tsan)      do_tsan ;;
   bench)     do_bench "${1:-}" ;;
   all)       do_test; do_sanitize; do_bench ;;
   help|-h|--help) usage ;;
