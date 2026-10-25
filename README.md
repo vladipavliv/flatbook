@@ -12,6 +12,7 @@ with a numpy batch API. Benchmarked against `std::map`, CppTrader and Liquibook.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Standard: C++20](https://img.shields.io/badge/Standard-C%2B%2B20-blue.svg)]()
 [![Header-only](https://img.shields.io/badge/header--only-ff69b4.svg)]()
+[![Release](https://img.shields.io/github/v/release/vladipavliv/flatbook)](https://github.com/vladipavliv/flatbook/releases)
 
 Tested with GCC / Clang (libstdc++ & libc++) / MSVC; CI runs ASan+UBSan, TSan, clang-tidy, libFuzzer and coverage.
 
