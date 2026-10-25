@@ -29,6 +29,7 @@ Tested with GCC / Clang (libstdc++ & libc++) / MSVC; CI runs ASan+UBSan, TSan, c
 - [Performance](#performance)
 - [Install / use as a dependency](#install--use-as-a-dependency)
 - [Building](#building)
+- [Documentation](#documentation)
 - [Versioning](#versioning)
 
 ## Quickstart
@@ -209,6 +210,14 @@ Handy one-liners (see `dev.sh`):
 ./dev.sh tail        # per-op latency percentiles (p50..p99.9/max)
 ./dev.sh all         # test + sanitize + bench
 ```
+
+## Documentation
+
+- [API.md](docs/API.md) — the public API surface and the internal/public boundary.
+- [SEMANTICS.md](docs/SEMANTICS.md) — edge-case behavior per order type / TIF, tied to tests.
+- [DESIGN.md](docs/DESIGN.md) — data structures, order ids, determinism, safety model.
+- [BENCHMARKS.md](docs/BENCHMARKS.md) — methodology, baselines, machine config.
+- [VALIDATION.md](docs/VALIDATION.md) — LOBSTER data format and how to validate the book.
 
 ## Versioning
 
