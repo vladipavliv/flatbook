@@ -1,4 +1,4 @@
-# FlatBook - Deterministic Order Book
+<h1 align="center">FlatBook - Deterministic Order Book</h1>
 
 <p align="center">
   <a href="https://github.com/vladipavliv/flatbook/actions"><img src="https://img.shields.io/github/actions/workflow/status/vladipavliv/flatbook/ci.yml?branch=main&style=flat-square" alt="CI"></a>
