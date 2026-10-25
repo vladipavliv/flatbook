@@ -20,7 +20,15 @@ class FlatbookConan(ConanFile):
 
     def build(self):
         cmake = CMake(self)
-        cmake.configure()
+        cmake.configure(
+            variables={
+                # Benchmarks/examples/tests are not exported; build the library only.
+                "FLATBOOK_BUILD_BENCHMARKS": "OFF",
+                "FLATBOOK_BUILD_EXAMPLES": "OFF",
+                "FLATBOOK_BUILD_TESTS": "OFF",
+                "FLATBOOK_BUILD_FUZZER": "OFF",
+            }
+        )
         cmake.build()
 
     def package(self):

@@ -10,7 +10,7 @@
 namespace flatbook {
 namespace {
 
-using Book = OrderBook<256, 64>; // small window, so the replay exercises rebase
+using Book = OrderBook<256, 64, GenerationalId<256, 24>>; // small window; generational ids
 using Engine = MatchingEngine<Book>;
 using Side = Engine::Side;
 
@@ -35,6 +35,14 @@ TEST(Lobster, ParseLine) {
   EXPECT_TRUE(buy);
 
   EXPECT_FALSE(parseLobsterLine("garbage", type, orderId, size, price, buy));
+
+  // Comma-separated variant must also parse (some LOBSTER distributions).
+  ASSERT_TRUE(parseLobsterLine("34200.3,1,200,3,10005,1", type, orderId, size, price, buy));
+  EXPECT_EQ(type, 1);
+  EXPECT_EQ(orderId, 200u);
+  EXPECT_EQ(size, 3u);
+  EXPECT_EQ(price, 10005);
+  EXPECT_TRUE(buy);
 }
 
 TEST(Lobster, ReplayCrossesAndDeletes) {

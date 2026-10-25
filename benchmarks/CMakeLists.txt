@@ -16,8 +16,11 @@ add_executable(flatbook_bench
 )
 target_link_libraries(flatbook_bench PRIVATE flatbook benchmark::benchmark)
 
-add_executable(flatbook_tail src/TailLatency.cpp)
-target_link_libraries(flatbook_tail PRIVATE flatbook)
+# TailLatency is x86-only (__rdtsc / <x86intrin.h>).
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|i[3-6]86")
+    add_executable(flatbook_tail src/TailLatency.cpp)
+    target_link_libraries(flatbook_tail PRIVATE flatbook)
+endif()
 
 add_executable(flatbook_dispatcher_bench src/BenchDispatcher.cpp)
 target_link_libraries(flatbook_dispatcher_bench PRIVATE flatbook)

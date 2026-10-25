@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -39,6 +40,11 @@ struct LobsterStats {
  * exchange's actual executions (possibly pro-rata / hidden), so the produced
  * fills can diverge from the recorded ones. It reproduces the message *shapes*
  * and size distribution of real data, which is what the latency numbers need.
+ *
+ * @note Use a book with GenerationalId ids: the engine's own matching can fully
+ * fill a resting order (recycling its slot), and a stale order_id -> OrderIdx
+ * mapping would otherwise alias a reused slot (an ABA hazard). With
+ * GenerationalId, stale lookups are rejected by the generation check.
  *
  * @tparam Engine A MatchingEngine type.
  */
@@ -159,16 +165,26 @@ private:
 /**
  * @brief Parse one LOBSTER message line.
  *
- * @return true on success (six space-separated fields).
+ * LOBSTER files carry a `.csv` extension but are space-separated; some
+ * distributions use commas. Both are accepted (`,`, `;`, and whitespace are
+ * treated as separators).
+ *
+ * @return true on success (six fields).
  */
 inline bool parseLobsterLine(const char *line, int &type, std::uint64_t &orderId,
-                             std::uint32_t &size, std::int64_t &price, bool &buy) noexcept {
+                             std::uint32_t &size, std::int64_t &price, bool &buy) {
+  std::string s(line);
+  for (char &ch : s) {
+    if (ch == ',' || ch == ';') {
+      ch = ' ';
+    }
+  }
   double t = 0.0;
   unsigned long long oid = 0;
   unsigned int sz = 0;
   long long px = 0;
   int dir = 0;
-  if (std::sscanf(line, "%lf %d %llu %u %lld %d", &t, &type, &oid, &sz, &px, &dir) != 6) {
+  if (std::sscanf(s.c_str(), "%lf %d %llu %u %lld %d", &t, &type, &oid, &sz, &px, &dir) != 6) {
     return false;
   }
   orderId = static_cast<std::uint64_t>(oid);
@@ -179,7 +195,7 @@ inline bool parseLobsterLine(const char *line, int &type, std::uint64_t &orderId
 }
 
 /**
- * @brief Replay a LOBSTER message file (space-separated) into @p engine.
+ * @brief Replay a LOBSTER message file into @p engine.
  *
  * @return Aggregate counters. Lines that fail to parse are counted in `skipped`.
  */
@@ -194,6 +210,7 @@ LobsterStats replayLobsterFile(Engine &engine, const char *path,
   LobsterReplay<Engine> replay(engine);
   replay.onFill(std::move(onFill));
 
+  std::uint64_t parseFailures = 0;
   char line[4096];
   while (std::fgets(line, sizeof(line), f) != nullptr) {
     ++stats.lines;
@@ -204,11 +221,14 @@ LobsterStats replayLobsterFile(Engine &engine, const char *path,
     bool buy = false;
     if (parseLobsterLine(line, type, orderId, size, price, buy)) {
       replay.message(type, orderId, size, price, buy);
+    } else {
+      ++parseFailures;
     }
   }
   std::fclose(f);
   auto result = replay.stats();
   result.lines = stats.lines;
+  result.skipped += parseFailures;
   return result;
 }
 
