@@ -45,9 +45,13 @@ namespace flatbook {
  * @tparam PriceLevels Number of distinct price levels (tick indexes 0..PriceLevels-1).
  * @tparam Id          Order id type (RawId<Size> or GenerationalId<Size, GenBits>).
  * @tparam Participant Self-trade-prevention key type, or void to disable.
+ * @tparam Rebaseable  When true (default), rebase() is available and allocates a
+ *                     vector of cancelled ids; when false, the window is fixed
+ *                     and rebase() is a compile error (strictly allocation-free).
  */
 template <std::uint32_t Size, std::uint32_t PriceLevels,
-          OrderIdLike<IndexType<Size>> Id = RawId<Size>, typename Participant = void>
+          OrderIdLike<IndexType<Size>> Id = RawId<Size>, typename Participant = void,
+          bool Rebaseable = true>
 class OrderBook {
   static_assert(Size >= 2, "OrderBook: Size must be at least 2 (index 0 is the null sentinel)");
   static_assert(PriceLevels >= 1, "OrderBook: PriceLevels must be at least 1");
@@ -272,6 +276,9 @@ public:
    */
   [[nodiscard]]
   std::vector<OrderIdx> rebase(Price newBase) noexcept {
+    static_assert(Rebaseable,
+                  "rebase() is disabled: instantiate OrderBook with Rebaseable=true "
+                  "to shift the price window at runtime");
     std::vector<OrderIdx> cancelled;
     const Price delta = newBase - base_;
 
