@@ -6,12 +6,13 @@
   (`0.1.0` → `0.1.1`) is a backward-compatible fix only.
 - `1.0.0` - freezes the public API.
 
-The version is declared in **three places** and must stay in sync (checked by
+The version is declared in **four places** and must stay in sync (checked by
 `./dev.sh` in CI via `scripts/check_version.py`):
 
 - `CMakeLists.txt` (`project(... VERSION x.y.z)`)
 - `vcpkg.json` (`"version"`)
 - `conanfile.py` (`version = "..."`)
+- `pyproject.toml` (`version = "..."`)
 
 ## Checklist for a release
 
@@ -21,7 +22,7 @@ The version is declared in **three places** and must stay in sync (checked by
 4. `./dev.sh tidy` - clang-tidy clean.
 5. `./dev.sh bench --refs --report` - regenerate `docs/BENCHMARKS.md` on a quiet,
    frequency-locked machine.
-6. Update the version in all three files (above) and run `scripts/check_version.py`.
+6. Update the version in all four files (above) and run `scripts/check_version.py`.
 7. Update `CHANGELOG.md` - move `Unreleased` to a dated release, list all Added /
    Changed / Breaking changes.
 8. Tag `vX.Y.Z` and push.

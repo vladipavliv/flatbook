@@ -126,9 +126,12 @@ public:
     return GenerationalId{static_cast<Storage>(index) | (static_cast<Storage>(gen) << kIndexBits)};
   }
 
-  /// @return The "no order" sentinel (all bits set).
+  /// @return The "no order" sentinel (index and generation both maxed).
+  /// Must equal fromIndexAndGen(index(), generation()) so the sentinel survives
+  /// serialization round-trips.
   [[nodiscard]] static constexpr GenerationalId invalid() noexcept {
-    return GenerationalId{~Storage{0}};
+    const std::uint64_t genMax = (std::uint64_t{1} << kGenBits) - 1;
+    return fromIndexAndGen(static_cast<Index>(kIndexMask), static_cast<std::uint32_t>(genMax));
   }
 
   constexpr bool operator==(const GenerationalId &) const noexcept = default;

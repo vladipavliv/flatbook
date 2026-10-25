@@ -82,6 +82,8 @@ public:
   static constexpr std::uint32_t kSize = Size;
   /// Number of configured price levels.
   static constexpr std::uint32_t kPriceLevels = PriceLevels;
+  /// Whether rebase() is available (mirrors the template parameter).
+  static constexpr bool kRebaseable = Rebaseable;
 
   /// Reserved raw index used as the null link sentinel; never issued.
   static constexpr SlotIdx NULL_SLOT = 0;

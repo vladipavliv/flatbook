@@ -183,9 +183,9 @@ public:
     if (started_.exchange(true, std::memory_order_acq_rel)) {
       return;
     }
-    stop_.store(false, std::memory_order_release);
+    stop_.store(false, std::memory_order_seq_cst);
     for (auto &w : workers_) {
-      w->stop.store(false, std::memory_order_release);
+      w->stop.store(false, std::memory_order_seq_cst);
       w->thread = std::thread([this, wp = w.get()] {
         if (!workerCores_.empty()) {
           pinToCore(workerCores_[wp->id]);
@@ -207,8 +207,8 @@ public:
     }
     // 1. Tell workers to stop and wake any that are asleep on the futex.
     for (auto &w : workers_) {
-      w->stop.store(true, std::memory_order_release);
-      if (w->sleeping.load(std::memory_order_acquire)) {
+      w->stop.store(true, std::memory_order_seq_cst);
+      if (w->sleeping.load(std::memory_order_seq_cst)) {
         detail::futexNotify(w->waitWord);
       }
     }
@@ -219,8 +219,8 @@ public:
       }
     }
     // 3. Stop the collector; wake it if asleep, then join (final drain).
-    stop_.store(true, std::memory_order_release);
-    if (collectorSleeping_.load(std::memory_order_acquire)) {
+    stop_.store(true, std::memory_order_seq_cst);
+    if (collectorSleeping_.load(std::memory_order_seq_cst)) {
       detail::futexNotify(collectorWaitWord_);
     }
     if (collector_.joinable()) {
@@ -305,6 +305,8 @@ public:
   /// The outcome is delivered via a Rebase event; any orders cancelled because
   /// they fell outside the window are reported as separate Cancel events.
   void rebase(uint32_t symbolIdx, Price newBase, std::uint64_t correlationId = 0) {
+    static_assert(Book::kRebaseable,
+                  "MatchingDispatcher::rebase requires a book with Rebaseable=true");
     Command cmd;
     cmd.kind = Command::Kind::Rebase;
     cmd.symbolIdx = symbolIdx;
@@ -316,6 +318,8 @@ public:
   /// Non-blocking rebase; see tryAddOrder.
   [[nodiscard]]
   bool tryRebase(uint32_t symbolIdx, Price newBase, std::uint64_t correlationId = 0) {
+    static_assert(Book::kRebaseable,
+                  "MatchingDispatcher::tryRebase requires a book with Rebaseable=true");
     Command cmd;
     cmd.kind = Command::Kind::Rebase;
     cmd.symbolIdx = symbolIdx;
@@ -385,7 +389,7 @@ private:
       }
     }
     stats_.submitted.fetch_add(1, std::memory_order_relaxed);
-    if (w.sleeping.load(std::memory_order_acquire)) [[unlikely]] {
+    if (w.sleeping.load(std::memory_order_seq_cst)) [[unlikely]] {
       detail::futexNotify(w.waitWord);
     }
   }
@@ -401,7 +405,7 @@ private:
     Worker &w = *workers_[workerOf_[symbolIdx]];
     if (w.input.write(cmd)) {
       stats_.submitted.fetch_add(1, std::memory_order_relaxed);
-      if (w.sleeping.load(std::memory_order_acquire)) [[unlikely]] {
+      if (w.sleeping.load(std::memory_order_seq_cst)) [[unlikely]] {
         detail::futexNotify(w.waitWord);
       }
       return true;
@@ -438,27 +442,29 @@ private:
       break;
     }
     case Command::Kind::Rebase: {
-      const auto r = book.rebase(cmd.newBase);
-      // Report each cancelled order as a Cancel event, then the rebase ack.
-      for (const auto id : r.cancelled) {
+      if constexpr (Book::kRebaseable) {
+        const auto r = book.rebase(cmd.newBase);
+        // Report each cancelled order as a Cancel event, then the rebase ack.
+        for (const auto id : r.cancelled) {
+          Event e;
+          e.kind = Event::Kind::Cancel;
+          e.symbolIdx = cmd.symbolIdx;
+          e.correlationId = cmd.correlationId;
+          e.cancel.cancelled = true;
+          e.cancel.orderId = id;
+          e.cancel.seq = r.seq;
+          pushOutput(w, e);
+          stats_.cancels.fetch_add(1, std::memory_order_relaxed);
+        }
         Event e;
-        e.kind = Event::Kind::Cancel;
+        e.kind = Event::Kind::Rebase;
         e.symbolIdx = cmd.symbolIdx;
         e.correlationId = cmd.correlationId;
-        e.cancel.cancelled = true;
-        e.cancel.orderId = id;
-        e.cancel.seq = r.seq;
+        e.rebase.newBase = cmd.newBase;
+        e.rebase.seq = r.seq;
         pushOutput(w, e);
-        stats_.cancels.fetch_add(1, std::memory_order_relaxed);
+        stats_.rebases.fetch_add(1, std::memory_order_relaxed);
       }
-      Event e;
-      e.kind = Event::Kind::Rebase;
-      e.symbolIdx = cmd.symbolIdx;
-      e.correlationId = cmd.correlationId;
-      e.rebase.newBase = cmd.newBase;
-      e.rebase.seq = r.seq;
-      pushOutput(w, e);
-      stats_.rebases.fetch_add(1, std::memory_order_relaxed);
       break;
     }
     }
@@ -491,7 +497,7 @@ private:
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     }
-    if (collectorSleeping_.load(std::memory_order_acquire)) [[unlikely]] {
+    if (collectorSleeping_.load(std::memory_order_seq_cst)) [[unlikely]] {
       detail::futexNotify(collectorWaitWord_);
     }
   }
@@ -507,7 +513,7 @@ private:
         } while (w.input.read(cmd));
         continue;
       }
-      if (w.stop.load(std::memory_order_acquire)) {
+      if (w.stop.load(std::memory_order_seq_cst)) {
         // stop is set after the last post; drain anything that raced in.
         while (w.input.read(cmd)) {
           process(w, cmd);
@@ -519,23 +525,23 @@ private:
       }
       // Spin budget exhausted: hybrid spin-then-block on a futex.
       const std::uint32_t word = w.waitWord.load(std::memory_order_acquire);
-      w.sleeping.store(true, std::memory_order_release);
+      w.sleeping.store(true, std::memory_order_seq_cst);
       // Double-check: a command may have raced in since the last read.
       if (w.input.read(cmd)) {
-        w.sleeping.store(false, std::memory_order_release);
+        w.sleeping.store(false, std::memory_order_seq_cst);
         waiter.reset();
         process(w, cmd);
         continue;
       }
-      if (w.stop.load(std::memory_order_acquire)) {
-        w.sleeping.store(false, std::memory_order_release);
+      if (w.stop.load(std::memory_order_seq_cst)) {
+        w.sleeping.store(false, std::memory_order_seq_cst);
         while (w.input.read(cmd)) {
           process(w, cmd);
         }
         break;
       }
       detail::futexWait(w.waitWord, word);
-      w.sleeping.store(false, std::memory_order_release);
+      w.sleeping.store(false, std::memory_order_seq_cst);
       waiter.reset();
     }
   }
@@ -566,7 +572,7 @@ private:
       return any;
     };
 
-    while (!stop_.load(std::memory_order_acquire)) {
+    while (!stop_.load(std::memory_order_seq_cst)) {
       if (drain()) {
         waiter.reset();
         continue;
@@ -576,19 +582,19 @@ private:
       }
       // Spin budget exhausted: hybrid spin-then-block on a futex.
       const std::uint32_t word = collectorWaitWord_.load(std::memory_order_acquire);
-      collectorSleeping_.store(true, std::memory_order_release);
+      collectorSleeping_.store(true, std::memory_order_seq_cst);
       // Double-check before sleeping (avoid a lost wakeup).
       if (drain()) {
-        collectorSleeping_.store(false, std::memory_order_release);
+        collectorSleeping_.store(false, std::memory_order_seq_cst);
         waiter.reset();
         continue;
       }
-      if (stop_.load(std::memory_order_acquire)) {
-        collectorSleeping_.store(false, std::memory_order_release);
+      if (stop_.load(std::memory_order_seq_cst)) {
+        collectorSleeping_.store(false, std::memory_order_seq_cst);
         break;
       }
       detail::futexWait(collectorWaitWord_, word);
-      collectorSleeping_.store(false, std::memory_order_release);
+      collectorSleeping_.store(false, std::memory_order_seq_cst);
       waiter.reset();
     }
     // Final drain: workers are already joined, so this catches everything.

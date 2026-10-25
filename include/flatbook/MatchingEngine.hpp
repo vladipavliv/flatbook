@@ -337,9 +337,9 @@ public:
     if constexpr (kHasParticipants) {
       repl.participant = book_.participantOf(id); // inherit ownership, before remove
     }
-    if (wouldReject(repl)) {
-      return {Result::Rejected, INVALID_ORDER, repl.quantity, seq,
-              repl.quantity == 0 ? Reason::InvalidQuantity : Reason::PriceOutOfWindow};
+    const Reason rejectReason = wouldReject(repl);
+    if (rejectReason != Reason::None) {
+      return {Result::Rejected, INVALID_ORDER, repl.quantity, seq, rejectReason};
     }
     (void)book_.remove(id);        // id is live, so this succeeds
     return addOrder(repl, onFill); // the replacement gets its own sequence
@@ -477,23 +477,26 @@ private:
   /// Whether the order would be rejected for a reason checkable before any
   /// book mutation (static constraints plus post-only/FOK pre-checks).
   [[nodiscard]]
-  bool wouldReject(const Order &order) const noexcept {
+  /// @return The reason the order would be rejected, or Reason::None if it is
+  ///         acceptable. Used by modify() to report the exact failure.
+  [[nodiscard]]
+  Reason wouldReject(const Order &order) const noexcept {
     if (order.quantity == 0) {
-      return true;
+      return Reason::InvalidQuantity;
     }
     if (order.postOnly && (order.type != OrderType::Limit || order.tif != TimeInForce::GTC)) {
-      return true;
+      return Reason::InvalidPostOnly;
     }
     if (order.type == OrderType::Limit && !book_.isPriceInWindow(order.price)) {
-      return true;
+      return Reason::PriceOutOfWindow;
     }
     if (order.postOnly && crossable(order)) {
-      return true;
+      return Reason::PostOnlyWouldCross;
     }
     if (order.tif == TimeInForce::FOK && !canFillFully(order)) {
-      return true;
+      return Reason::FokInsufficientLiquidity;
     }
-    return false;
+    return Reason::None;
   }
 
   /// @return Total quantity at a level matchable by @p aggressor (excludes self).

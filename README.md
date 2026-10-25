@@ -187,7 +187,7 @@ Or vendor with FetchContent:
 
 ```cmake
 include(FetchContent)
-FetchContent_Declare(flatbook GIT_REPOSITORY https://github.com/vladipavliv/flatbook.git)
+FetchContent_Declare(flatbook GIT_REPOSITORY https://github.com/vladipavliv/flatbook.git GIT_TAG v0.2.0)
 FetchContent_MakeAvailable(flatbook)
 target_link_libraries(app PRIVATE flatbook::flatbook)
 ```

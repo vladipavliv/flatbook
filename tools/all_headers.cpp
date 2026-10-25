@@ -7,6 +7,7 @@
 #include <flatbook/IdPool.hpp>
 #include <flatbook/Journal.hpp>
 #include <flatbook/Lobster.hpp>
+#include <flatbook/LobsterValidator.hpp>
 #include <flatbook/MatchingDispatcher.hpp>
 #include <flatbook/MatchingEngine.hpp>
 #include <flatbook/OrderBook.hpp>

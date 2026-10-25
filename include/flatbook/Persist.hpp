@@ -514,7 +514,11 @@ bool loadFromBuffer(const std::uint8_t *data, std::size_t size, Engine &engine) 
 
   // All validation passed: commit.
   engine.restore(*snap);
-  (void)replayInto(journal, engine);
+  // A journal whose replay diverges from the recorded results means the file is
+  // inconsistent; refuse the load rather than silently restoring a wrong state.
+  if (replayInto(journal, engine) != 0) {
+    return false;
+  }
   return true;
 }
 

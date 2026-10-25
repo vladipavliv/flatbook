@@ -304,7 +304,7 @@ struct PyEngine {
                 oid[i] = 0;
                 rem[i] = qp[i];
                 sq[i] = 0;
-                rs[i] = static_cast<std::uint8_t>(Engine::Reason::Invalid);
+                rs[i] = static_cast<std::uint8_t>(Engine::Reason::InvalidQuantity);
                 fo[i + 1] = static_cast<std::uint32_t>(fillPrice.size());
                 continue;
               }

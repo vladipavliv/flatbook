@@ -33,10 +33,13 @@ Exit code 0 = full match, 1 = mismatch (context printed), 2 = usage error.
 
 ## Limitations
 
-- The engine starts empty. A sample that does not begin from an empty book
-  (i.e. after the open) cannot be validated exactly, because the top-N orderbook
-  file does not contain enough information to reconstruct the full initial state.
-  Use a file starting at the open, or a self-contained fixture.
+- The validator seeds the book from the first orderbook line (top-N levels as
+  aggregate orders), then validates the *dynamics* of message[1..]. The initial
+  book's individual order breakdown and order ids are not in the sample (the
+  pre-open is cut off), so messages that reference a pre-open order are counted
+  as `skipped` / `rebasedAway` and the comparison diverges once those orders are
+  executed or cancelled. Exact validation requires the full LOBSTER data, which
+  starts from the pre-open with an empty book.
 - The price window must cover the data's price range, or `rebase()` will cancel
   orders that later re-enter the top-N. Those cancellations are counted
   (`cancelledByRebase` / `rebasedAway`), not silently dropped.
