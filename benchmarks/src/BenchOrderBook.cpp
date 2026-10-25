@@ -11,6 +11,7 @@
 #include "flatbook/MatchingEngine.hpp"
 #include "reference/HashMapBook.hpp"
 #include "reference/MapBook.hpp"
+#include "reference/LiquibookBook.hpp"
 
 namespace flatbook {
 
@@ -436,12 +437,76 @@ void BM_MapLatency(benchmark::State &state) {
 }
 
 // ---------------------------------------------------------------------------
+// Baseline: the same addLimit workload against Liquibook (a full matching
+// engine). Same order stream as FlatBook; liquibook has no resting order id,
+// so the depth is compared via bestBid/bestAsk/volume rather than fills.
+// ---------------------------------------------------------------------------
+template <std::uint32_t PriceLevels, PriceDistribution Dist>
+void BM_LiquibookRestLatency(benchmark::State &state) {
+  const auto &orders = cachedOrders<Dist, PriceLevels>();
+
+  LiquibookBook book;
+  std::size_t idx = 0;
+  auto warmUp = [&](std::size_t n) {
+    n = std::min(n, orders.size());
+    for (std::size_t i = 0; i < n; ++i) {
+      const auto &o = orders[i];
+      book.addLimit(o.price, o.qty, true); // force buy: always rests
+    }
+    idx = n;
+  };
+  warmUp(kWarmUpCount);
+
+  for (auto _ : state) {
+    if (idx >= orders.size()) {
+      state.PauseTiming();
+      book = LiquibookBook{};
+      warmUp(kWarmUpCount);
+      state.ResumeTiming();
+    }
+    const auto &o = orders[idx++];
+    benchmark::DoNotOptimize(&o);
+    book.addLimit(o.price, o.qty, true);
+    benchmark::ClobberMemory();
+  }
+}
+
+template <std::uint32_t PriceLevels, PriceDistribution Dist>
+void BM_LiquibookLatency(benchmark::State &state) {
+  const auto &orders = cachedOrders<Dist, PriceLevels>();
+
+  LiquibookBook book;
+  std::size_t idx = 0;
+  auto warmUp = [&](std::size_t n) {
+    n = std::min(n, orders.size());
+    for (std::size_t i = 0; i < n; ++i) {
+      const auto &o = orders[i];
+      book.addLimit(o.price, o.qty, o.buy);
+    }
+    idx = n;
+  };
+  warmUp(kWarmUpCount);
+
+  for (auto _ : state) {
+    if (idx >= orders.size()) {
+      state.PauseTiming();
+      book = LiquibookBook{};
+      warmUp(kWarmUpCount);
+      state.ResumeTiming();
+    }
+    const auto &o = orders[idx++];
+    benchmark::DoNotOptimize(&o);
+    book.addLimit(o.price, o.qty, o.buy);
+    benchmark::ClobberMemory();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Baseline: the same addLimit workload against an unordered_map order book.
 // ---------------------------------------------------------------------------
 template <std::uint32_t PriceLevels, PriceDistribution Dist>
 void BM_HashMapLatency(benchmark::State &state) {
   const auto &orders = cachedOrders<Dist, PriceLevels>();
-
   HashMapBook book;
   std::size_t idx = 0;
 
@@ -536,6 +601,16 @@ FLATBOOK_REGISTER_MAP(262144);
 FLATBOOK_REGISTER_HASHMAP(1024);
 FLATBOOK_REGISTER_HASHMAP(16384);
 FLATBOOK_REGISTER_HASHMAP(262144);
+
+#define FLATBOOK_REGISTER_LIQUIBOOK(Levels)                                                        \
+  BENCHMARK_TEMPLATE(BM_LiquibookLatency, Levels, PriceDistribution::Uniform);                     \
+  BENCHMARK_TEMPLATE(BM_LiquibookLatency, Levels, PriceDistribution::Clustered);                   \
+  BENCHMARK_TEMPLATE(BM_LiquibookRestLatency, Levels, PriceDistribution::Uniform);                 \
+  BENCHMARK_TEMPLATE(BM_LiquibookRestLatency, Levels, PriceDistribution::Clustered)
+
+FLATBOOK_REGISTER_LIQUIBOOK(1024);
+FLATBOOK_REGISTER_LIQUIBOOK(16384);
+FLATBOOK_REGISTER_LIQUIBOOK(262144);
 
 #define FLATBOOK_REGISTER_MAP_CANCEL(Levels)                                                       \
   BENCHMARK_TEMPLATE(BM_MapCancel, Levels, PriceDistribution::Uniform)->Arg(0)->Arg(25)->Arg(50);  \

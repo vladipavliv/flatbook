@@ -212,9 +212,34 @@ Writes `docs/add_vs_price_levels.png`, `docs/rest_vs_price_levels.png`,
 
 ## Real matchers
 
-FlatBook is a matching engine, so the honest comparison is against other
-matching engines on an identical order stream with identical validity checks.
-That comparison (liquibook and friends) is in progress; until it lands, the
-CppTrader / std::map baselines above only show the container-level difference
-and should not be read as "FlatBook vs a full matcher".
+Liquibook (a full callback-based matching engine, header-only, BSD-style
+license) is benchmarked on the same resting-only `addLimit` stream, median of 3
+runs:
+
+| Price levels | FlatBook | std::map | Liquibook |
+|---|---|---|---|
+| 1,024 | 8.6 ns | 70.7 ns | 187 ns |
+| 16,384 | 9.9 ns | 131 ns | 192 ns |
+| 262,144 | 14.1 ns | 265 ns | 191 ns |
+
+What is compared and how the semantics differ:
+
+- **Same order stream**: Liquibook is driven with the same `addLimit(price, qty,
+  buy)` workload as FlatBook and `std::map`; warm-up and reset are identical.
+- **Liquibook is a real matcher**: it accepts an order object and reports fills
+  through callbacks, so its timed path includes queueing a per-order object
+  (its design requires a stable Order per order). FlatBook and `std::map` do not
+  allocate on this path.
+- **No resting order id**: Liquibook has no id to return from `add`, so the
+  resting path is compared by depth (`bestBid`/`bestAsk`/`volume`), not ids;
+  the add/cancel benchmark is therefore not included for Liquibook.
+- **Semantics in common**: Limit + Market, price-time FIFO. Liquibook also has
+  stop / all-or-none / IOC (not exercised); FlatBook also has post-only / FOK /
+  STP / reason codes (not exercised). Both cross at the same prices.
+
+Liquibook is ~190 ns and roughly flat across the price range (its internal
+`std::multimap` of order trackers grows log-n), while FlatBook stays ~8-14 ns
+via direct indexing. This is the honest matcher-to-matcher comparison; the
+CppTrader / `std::map` rows above show only the container-level difference.
+
 
