@@ -20,12 +20,12 @@ int main(int argc, char **argv) {
   const char *orderbookPath = argv[2];
   const std::size_t numLevels = (argc >= 4) ? static_cast<std::size_t>(std::atoi(argv[3])) : 10;
 
-  using Book = flatbook::OrderBook<1u << 17, 1u << 16, flatbook::GenerationalId<1u << 17, 24>>;
+  using Book = flatbook::OrderBook<1u << 17, 1u << 17, flatbook::GenerationalId<1u << 17, 24>>;
   using Engine = flatbook::MatchingEngine<Book>;
 
   auto *engine = new Engine; // large: keep off the stack
 
-  const auto r = flatbook::validateLobster(*engine, messagePath, orderbookPath, numLevels);
+  const auto r = flatbook::validateLobsterSeeded(*engine, messagePath, orderbookPath, numLevels);
 
   std::printf("messages=%llu rebases=%llu cancelledByRebase=%llu rebasedAway=%llu skipped=%llu\n",
               static_cast<unsigned long long>(r.messages),

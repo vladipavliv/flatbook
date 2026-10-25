@@ -150,9 +150,9 @@ TEST(Lobster, MissingFileReturnsEmptyStats) {
 
 TEST(Lobster, ParseOrderbookLine) {
   OrderbookLevel levels[4];
-  // Official LOBSTER orderbook sample: level 1 = (1186600 x 9484 / 118500 x 8800),
-  // level 2 = (118700 x 22700 / 118400 x 14930).
-  const auto n = parseOrderbookLine("1186600 9484 118500 8800 118700 22700 118400 14930",
+  // Real LOBSTER orderbook is comma-separated: level 1 = (1186600 x 9484 /
+  // 118500 x 8800), level 2 = (118700 x 22700 / 118400 x 14930).
+  const auto n = parseOrderbookLine("1186600,9484,118500,8800,118700,22700,118400,14930",
                                     levels, 4);
   ASSERT_EQ(n, 2u);
   EXPECT_EQ(levels[0].askPrice, 1186600);

@@ -47,15 +47,22 @@ struct OrderbookLevel {
  */
 inline std::size_t parseOrderbookLine(const char *line, OrderbookLevel *levels,
                                       std::size_t maxLevels) noexcept {
+  // The orderbook file is comma-separated (like the message file); normalize.
+  std::string s(line);
+  for (char &ch : s) {
+    if (ch == ',' || ch == ';') {
+      ch = ' ';
+    }
+  }
+  const char *p = s.c_str();
   std::size_t n = 0;
-  int offset = 0;
   while (n < maxLevels) {
     long long ap = 0;
     long long bp = 0;
     unsigned as = 0;
     unsigned bs = 0;
     int consumed = 0;
-    if (std::sscanf(line + offset, " %lld %u %lld %u %n", &ap, &as, &bp, &bs, &consumed) != 4) {
+    if (std::sscanf(p, " %lld %u %lld %u %n", &ap, &as, &bp, &bs, &consumed) != 4) {
       break;
     }
     levels[n].askPrice = static_cast<std::int64_t>(ap);
@@ -63,7 +70,7 @@ inline std::size_t parseOrderbookLine(const char *line, OrderbookLevel *levels,
     levels[n].bidPrice = static_cast<std::int64_t>(bp);
     levels[n].bidSize = static_cast<std::uint32_t>(bs);
     ++n;
-    offset += consumed;
+    p += consumed;
   }
   return n;
 }
