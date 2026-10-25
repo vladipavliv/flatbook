@@ -23,7 +23,7 @@ bool sameAddResult(const AddResult &a, const AddResult &b) noexcept {
 
 template <typename CancelResult>
 bool sameCancelResult(const CancelResult &a, const CancelResult &b) noexcept {
-  return a.cancelled == b.cancelled && a.seq == b.seq;
+  return a.cancelled == b.cancelled && a.seq == b.seq && a.reason == b.reason;
 }
 
 template <typename Fill>

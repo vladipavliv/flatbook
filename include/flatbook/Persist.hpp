@@ -19,7 +19,7 @@
 namespace flatbook {
 
 /// File format version. Bump on any incompatible format change.
-inline constexpr std::uint32_t kPersistVersion = 3;
+inline constexpr std::uint32_t kPersistVersion = 4;
 /// File magic ("FLBK").
 inline constexpr std::uint32_t kPersistMagic = 0x4B424C46;
 
@@ -254,15 +254,18 @@ template <typename Engine>
 void writeCancelResult(ByteWriter &w, const typename Engine::CancelResult &c) {
   w.write(static_cast<std::uint8_t>(c.cancelled ? 1 : 0));
   w.write(c.seq);
+  w.write(static_cast<std::uint8_t>(c.reason));
 }
 
 template <typename Engine>
 bool readCancelResult(ByteReader &r, typename Engine::CancelResult &c) noexcept {
   std::uint8_t cancelled = 0;
-  if (!r.read(cancelled) || !r.read(c.seq)) {
+  std::uint8_t reason = 0;
+  if (!r.read(cancelled) || !r.read(c.seq) || !r.read(reason)) {
     return false;
   }
   c.cancelled = (cancelled != 0);
+  c.reason = static_cast<typename Engine::Reason>(reason);
   return true;
 }
 

@@ -61,6 +61,7 @@ struct DispatcherEvent {
   using Fill = typename Engine::Fill;
   using Price = typename Engine::Price;
   using Sequence = typename Engine::Sequence;
+  using Reason = typename Engine::Reason;
 
   enum class Kind : uint8_t { Fill, Result, Cancel, Rebase };
   Kind kind{Kind::Fill};
@@ -74,6 +75,7 @@ struct DispatcherEvent {
     bool cancelled{false};
     OrderIdx orderId{};
     Sequence seq{0};
+    Reason reason{Reason::None};
   };
   /// Payload of a Rebase event: the new window base and the rebase's sequence.
   struct RebaseEvent {
@@ -134,6 +136,7 @@ public:
   using Fill = typename Engine::Fill;
   using Price = typename Engine::Price;
   using Sequence = typename Engine::Sequence;
+  using Reason = typename Engine::Reason;
 
   static_assert(Book::OrderIdx::kHasGeneration,
                 "MatchingDispatcher is an async boundary: it requires GenerationalId ids "
@@ -424,6 +427,7 @@ private:
       e.cancel.cancelled = r.cancelled;
       e.cancel.orderId = cmd.orderId;
       e.cancel.seq = r.seq;
+      e.cancel.reason = r.reason;
       pushOutput(w, e);
       stats_.cancels.fetch_add(1, std::memory_order_relaxed);
       break;

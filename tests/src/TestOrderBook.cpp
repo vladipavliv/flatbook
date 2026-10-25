@@ -392,14 +392,14 @@ TEST(OrderBook, PriceOutOfRangeRejected) {
 
   auto r = submit(e, limit(Book::kPriceLevels, 5, Side::Buy), fills);
   EXPECT_EQ(r.result, Result::Rejected);
-  EXPECT_EQ(r.reason, Engine::Reason::Invalid);
+  EXPECT_EQ(r.reason, Engine::Reason::PriceOutOfWindow);
 }
 
 TEST(OrderBook, RejectReasonsAreDistinct) {
   Engine e;
   Fills fills;
 
-  // Post-only that would cross -> PostOnly.
+  // Post-only that would cross -> PostOnlyWouldCross.
   submit(e, limit(100, 5, Side::Sell), fills);
   auto postOnly = submit(e,
                          {.type = OrderType::Limit,
@@ -410,9 +410,9 @@ TEST(OrderBook, RejectReasonsAreDistinct) {
                           .side = Side::Buy},
                          fills);
   EXPECT_EQ(postOnly.result, Result::Rejected);
-  EXPECT_EQ(postOnly.reason, Engine::Reason::PostOnly);
+  EXPECT_EQ(postOnly.reason, Engine::Reason::PostOnlyWouldCross);
 
-  // FOK that cannot fill -> Fok.
+  // FOK that cannot fill -> FokInsufficientLiquidity.
   auto fok = submit(e,
                     {.type = OrderType::Limit,
                      .tif = TimeInForce::FOK,
@@ -421,12 +421,58 @@ TEST(OrderBook, RejectReasonsAreDistinct) {
                      .side = Side::Buy},
                     fills);
   EXPECT_EQ(fok.result, Result::Rejected);
-  EXPECT_EQ(fok.reason, Engine::Reason::Fok);
+  EXPECT_EQ(fok.reason, Engine::Reason::FokInsufficientLiquidity);
 
   // A normal filled order has no reason.
   auto filled = submit(e, limit(100, 5, Side::Buy), fills);
   EXPECT_EQ(filled.result, Result::Filled);
   EXPECT_EQ(filled.reason, Engine::Reason::None);
+}
+
+TEST(OrderBook, RejectReasonCoverage) {
+  Engine e;
+  Fills fills;
+
+  // InvalidQuantity: zero quantity.
+  EXPECT_EQ(submit(e, limit(100, 0, Side::Buy), fills).reason, Engine::Reason::InvalidQuantity);
+
+  // InvalidPostOnly: postOnly combined with market.
+  auto poMkt = submit(e,
+                      {.type = OrderType::Market,
+                       .tif = TimeInForce::GTC,
+                       .postOnly = true,
+                       .price = 0,
+                       .quantity = 5,
+                       .side = Side::Buy},
+                      fills);
+  EXPECT_EQ(poMkt.reason, Engine::Reason::InvalidPostOnly);
+
+  // UnknownOrder: cancel a stale id.
+  const auto c = e.cancelOrder(Engine::OrderIdx::fromIndex(1));
+  EXPECT_FALSE(c.cancelled);
+  EXPECT_EQ(c.reason, Engine::Reason::UnknownOrder);
+
+  // Rest an order, then modify with the wrong side -> SideMismatch.
+  auto r = submit(e, limit(100, 5, Side::Sell), fills);
+  ASSERT_TRUE(r.resting());
+  auto sideBad = e.modify(r.orderId,
+                          {.type = OrderType::Limit,
+                           .tif = TimeInForce::GTC,
+                           .price = 100,
+                           .quantity = 3,
+                           .side = Side::Buy});
+  EXPECT_EQ(sideBad.result, Result::Rejected);
+  EXPECT_EQ(sideBad.reason, Engine::Reason::SideMismatch);
+
+  // UnsupportedModify: market replacement.
+  auto mktRep = e.modify(r.orderId,
+                         {.type = OrderType::Market,
+                          .tif = TimeInForce::GTC,
+                          .price = 0,
+                          .quantity = 3,
+                          .side = Side::Sell});
+  EXPECT_EQ(mktRep.result, Result::Rejected);
+  EXPECT_EQ(mktRep.reason, Engine::Reason::UnsupportedModify);
 }
 
 TEST(OrderBook, SequenceIsMonotonic) {

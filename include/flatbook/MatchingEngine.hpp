@@ -108,12 +108,17 @@ public:
 
   /// Why an order was rejected or cancelled (adds detail beyond `Result`).
   enum class Reason : std::uint8_t {
-    None,      ///< No special reason (filled, resting, or a normal remainder discard).
-    Invalid,   ///< Malformed request (zero qty, bad postOnly combo, price out of window).
-    PostOnly,  ///< Post-only order would have crossed.
-    Fok,       ///< Fill-or-kill could not fill entirely.
-    SelfTrade, ///< Remainder would self-trade (cancelled by cancel-newest STP).
-    Capacity,  ///< Book full (no free order slot).
+    None,                     ///< No special reason (filled, resting, or a normal remainder discard).
+    InvalidQuantity,          ///< Zero quantity.
+    InvalidPostOnly,          ///< postOnly combined with market / non-GTC.
+    PriceOutOfWindow,         ///< Limit price outside the configured price window.
+    PostOnlyWouldCross,       ///< Post-only order would have crossed.
+    FokInsufficientLiquidity, ///< Fill-or-kill could not fill entirely.
+    BookFull,                 ///< No free order slot.
+    StpCancelNewest,          ///< Remainder would self-trade (cancelled by cancel-newest STP).
+    UnknownOrder,             ///< Cancel/modify referenced a stale or unknown order id.
+    SideMismatch,             ///< Modify replacement side differs from the original.
+    UnsupportedModify,        ///< Modify replacement is market / non-GTC (only limit GTC replaceable).
   };
 
   /**
@@ -167,32 +172,32 @@ public:
     const Sequence seq = nextSeq_++;
 
     if (quantity == 0) {
-      return {Result::Rejected, INVALID_ORDER, 0, seq, Reason::Invalid};
+      return {Result::Rejected, INVALID_ORDER, 0, seq, Reason::InvalidQuantity};
     }
 
     // PostOnly is a resting-limit concept: never cross, always rest.
     if (order.postOnly && (order.type != OrderType::Limit || order.tif != TimeInForce::GTC)) {
-      return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::Invalid};
+      return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::InvalidPostOnly};
     }
 
     if (order.type == OrderType::Limit && !book_.isPriceInWindow(order.price)) {
-      return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::Invalid};
+      return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::PriceOutOfWindow};
     }
 
     if (order.postOnly) {
       if (crossable(order)) {
-        return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::PostOnly};
+        return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::PostOnlyWouldCross};
       }
       const OrderIdx id = rest(order, quantity);
       if (id == INVALID_ORDER) {
-        return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::Capacity};
+        return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::BookFull};
       }
       return {Result::Resting, id, 0, seq};
     }
 
     // FOK: all or nothing. Verified read-only before mutating the book.
     if (order.tif == TimeInForce::FOK && !canFillFully(order)) {
-      return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::Fok};
+      return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::FokInsufficientLiquidity};
     }
 
     bool skippedSelf = false;
@@ -209,14 +214,14 @@ public:
           // cancel-newest: the remainder would self-trade, so cancel it instead
           // of resting it (resting would cross the aggressor's own orders).
           if (skippedSelf) {
-            return {Result::Cancelled, INVALID_ORDER, remaining, seq, Reason::SelfTrade};
+            return {Result::Cancelled, INVALID_ORDER, remaining, seq, Reason::StpCancelNewest};
           }
         }
         const OrderIdx id = rest(order, remaining);
         if (id == INVALID_ORDER) {
           // Unreachable when any fill already happened (a full fill frees a
           // slot), so this is the "book full, nothing executed" case.
-          return {Result::Rejected, INVALID_ORDER, remaining, seq, Reason::Capacity};
+          return {Result::Rejected, INVALID_ORDER, remaining, seq, Reason::BookFull};
         }
         return {Result::Resting, id, 0, seq};
       }
@@ -226,7 +231,7 @@ public:
       return {Result::Cancelled, INVALID_ORDER, remaining, seq};
 
     case TimeInForce::FOK:
-      return {Result::Rejected, INVALID_ORDER, remaining, seq, Reason::Fok};
+      return {Result::Rejected, INVALID_ORDER, remaining, seq, Reason::FokInsufficientLiquidity};
     }
 
     return {Result::Rejected, INVALID_ORDER, remaining, seq};
@@ -236,6 +241,7 @@ public:
   struct CancelResult {
     bool cancelled{false}; ///< true when the id was live and was removed.
     Sequence seq{0};       ///< Sequence assigned to this cancel.
+    Reason reason{Reason::None}; ///< UnknownOrder when the id was stale.
   };
 
   /**
@@ -248,7 +254,8 @@ public:
   [[nodiscard]]
   CancelResult cancelOrder(OrderIdx id) noexcept {
     const Sequence seq = nextSeq_++;
-    return {book_.remove(id), seq};
+    const bool ok = book_.remove(id);
+    return {ok, seq, ok ? Reason::None : Reason::UnknownOrder};
   }
 
   /**
@@ -315,16 +322,23 @@ public:
   [[nodiscard]]
   AddResult modify(OrderIdx id, const Order &replacement, OnFill &&onFill = NoopFill{}) noexcept {
     const Sequence seq = nextSeq_++; // a modify consumes a sequence even if rejected
-    if (!book_.isLive(id) || book_.sideOf(id) != replacement.side ||
-        replacement.type != OrderType::Limit || replacement.tif != TimeInForce::GTC) {
-      return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq, Reason::Invalid};
+    if (!book_.isLive(id)) {
+      return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq, Reason::UnknownOrder};
+    }
+    if (replacement.type != OrderType::Limit || replacement.tif != TimeInForce::GTC) {
+      return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq, Reason::UnsupportedModify};
+    }
+    if (book_.sideOf(id) != replacement.side) {
+      return {Result::Rejected, INVALID_ORDER, replacement.quantity, seq, Reason::SideMismatch};
     }
     Order repl = replacement;
     if constexpr (kHasParticipants) {
       repl.participant = book_.participantOf(id); // inherit ownership, before remove
     }
     if (wouldReject(repl)) {
-      return {Result::Rejected, INVALID_ORDER, repl.quantity, seq, Reason::Invalid};
+      return {Result::Rejected, INVALID_ORDER, repl.quantity, seq, repl.quantity == 0
+                                                                     ? Reason::InvalidQuantity
+                                                                     : Reason::PriceOutOfWindow};
     }
     (void)book_.remove(id); // id is live, so this succeeds
     return addOrder(repl, onFill); // the replacement gets its own sequence
