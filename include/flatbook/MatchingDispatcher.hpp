@@ -7,6 +7,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -68,35 +69,58 @@ public:
   using OrderIdx = typename Engine::OrderIdx;
   using AddResult = typename Engine::AddResult;
   using Fill = typename Engine::Fill;
+  using Price = typename Engine::Price;
+  using Sequence = typename Engine::Sequence;
 
-  /// One event delivered to the callback: a fill, an order result, or a cancel ack.
-  /// The `kind` tag selects the active union member; only trivially-copyable
-  /// members are used, so the SPSC memcpy stays valid.
+  static_assert(Book::OrderIdx::kHasGeneration,
+                "MatchingDispatcher is an async boundary: it requires GenerationalId ids "
+                "(RawId aliases reused slots; see the safety model in README.md)");
+
+  /// One event delivered to the callback: a fill, an order result, a cancel ack,
+  /// or a rebase ack. The `kind` tag selects the active union member; only
+  /// trivially-copyable members are used, so the SPSC memcpy stays valid.
   struct Event {
-    enum class Kind : uint8_t { Fill, Result, Cancel };
+    enum class Kind : uint8_t { Fill, Result, Cancel, Rebase };
     Kind kind{Kind::Fill};
     uint32_t symbolIdx{0};
     /// Opaque caller-supplied tag echoed back, for correlating async acks with
     /// the submission that produced them.
     std::uint64_t correlationId{0};
+
+    /// Payload of a Cancel event: the outcome plus the affected order id and
+    /// the cancel's sequence.
+    struct CancelEvent {
+      bool cancelled{false};
+      OrderIdx orderId{};
+      Sequence seq{0};
+    };
+    /// Payload of a Rebase event: the new window base and the rebase's sequence.
+    struct RebaseEvent {
+      Price newBase{};
+      Sequence seq{0};
+    };
+
     union {
       Fill fill;
       AddResult result;
-      bool cancelled;
+      CancelEvent cancel;
+      RebaseEvent rebase;
     };
 
     // Fill/AddResult have default member initializers (non-trivial ctors), so
-    // the union needs an explicit constructor that activates the trivial bool.
-    Event() noexcept : cancelled{false} {}
+    // the union needs an explicit constructor that activates a trivial member.
+    Event() noexcept : cancel{} {}
   };
 
-  /// Runtime counters, incremented across threads; read with load().
+  /// Runtime counters, each on its own cache line to avoid false sharing
+  /// between the ingress and the workers.
   struct Stats {
-    std::atomic<std::uint64_t> submitted{0}; ///< Commands enqueued (blocking + try).
-    std::atomic<std::uint64_t> rejected{0};  ///< try* commands dropped (input full).
-    std::atomic<std::uint64_t> fills{0};     ///< Fill events emitted.
-    std::atomic<std::uint64_t> results{0};   ///< Result events emitted.
-    std::atomic<std::uint64_t> cancels{0};   ///< Cancel events emitted.
+    alignas(64) std::atomic<std::uint64_t> submitted{0}; ///< Commands enqueued.
+    alignas(64) std::atomic<std::uint64_t> rejected{0};  ///< try* commands dropped (input full).
+    alignas(64) std::atomic<std::uint64_t> fills{0};     ///< Fill events emitted.
+    alignas(64) std::atomic<std::uint64_t> results{0};   ///< Result events emitted.
+    alignas(64) std::atomic<std::uint64_t> cancels{0};   ///< Cancel events emitted.
+    alignas(64) std::atomic<std::uint64_t> rebases{0};   ///< Rebase events emitted.
   };
 
   /// Invoked from the collector thread, one event at a time, in per-symbol order.
@@ -240,6 +264,29 @@ public:
     return tryPost(symbolIdx, cmd);
   }
 
+  /// Move a symbol's price window so slot 0 maps to @p newBase (blocking).
+  /// The outcome is delivered via a Rebase event; any orders cancelled because
+  /// they fell outside the window are reported as separate Cancel events.
+  void rebase(uint32_t symbolIdx, Price newBase, std::uint64_t correlationId = 0) {
+    Command cmd;
+    cmd.kind = Command::Kind::Rebase;
+    cmd.symbolIdx = symbolIdx;
+    cmd.correlationId = correlationId;
+    cmd.newBase = newBase;
+    post(symbolIdx, cmd);
+  }
+
+  /// Non-blocking rebase; see tryAddOrder.
+  [[nodiscard]]
+  bool tryRebase(uint32_t symbolIdx, Price newBase, std::uint64_t correlationId = 0) {
+    Command cmd;
+    cmd.kind = Command::Kind::Rebase;
+    cmd.symbolIdx = symbolIdx;
+    cmd.correlationId = correlationId;
+    cmd.newBase = newBase;
+    return tryPost(symbolIdx, cmd);
+  }
+
   /// @return Number of worker threads.
   [[nodiscard]]
   size_t workerCount() const noexcept {
@@ -267,12 +314,13 @@ public:
 
 private:
   struct Command {
-    enum class Kind : uint8_t { Add, Cancel, Modify };
+    enum class Kind : uint8_t { Add, Cancel, Modify, Rebase };
     Kind kind{Kind::Add};
     uint32_t symbolIdx{0};
     std::uint64_t correlationId{0};
     Order order{};      ///< Add: the order; Modify: the replacement.
     OrderIdx orderId{}; ///< Cancel/Modify: the resting order id to act on.
+    Price newBase{};    ///< Rebase: the new window base.
   };
 
   struct Worker {
@@ -285,7 +333,9 @@ private:
   };
 
   void post(uint32_t symbolIdx, const Command &cmd) {
-    assert(symbolIdx < SymbolCount);
+    if (symbolIdx >= SymbolCount) {
+      throw std::out_of_range("flatbook: symbolIdx out of range");
+    }
     Worker &w = *workers_[workerOf_[symbolIdx]];
     SpinWait waiter;
     while (!w.input.write(cmd)) {
@@ -296,10 +346,14 @@ private:
     stats_.submitted.fetch_add(1, std::memory_order_relaxed);
   }
 
-  /// Single-attempt enqueue: false when the worker's input queue is full.
+  /// Single-attempt enqueue: false when the symbol is invalid or the worker's
+  /// input queue is full.
   [[nodiscard]]
   bool tryPost(uint32_t symbolIdx, const Command &cmd) {
-    assert(symbolIdx < SymbolCount);
+    if (symbolIdx >= SymbolCount) {
+      stats_.rejected.fetch_add(1, std::memory_order_relaxed);
+      return false;
+    }
     Worker &w = *workers_[workerOf_[symbolIdx]];
     if (w.input.write(cmd)) {
       stats_.submitted.fetch_add(1, std::memory_order_relaxed);
@@ -318,12 +372,14 @@ private:
       break;
     }
     case Command::Kind::Cancel: {
-      const bool ok = book.cancelOrder(cmd.orderId).cancelled;
+      const auto r = book.cancelOrder(cmd.orderId);
       Event e;
       e.kind = Event::Kind::Cancel;
       e.symbolIdx = cmd.symbolIdx;
       e.correlationId = cmd.correlationId;
-      e.cancelled = ok;
+      e.cancel.cancelled = r.cancelled;
+      e.cancel.orderId = cmd.orderId;
+      e.cancel.seq = r.seq;
       pushOutput(w, e);
       stats_.cancels.fetch_add(1, std::memory_order_relaxed);
       break;
@@ -331,6 +387,30 @@ private:
     case Command::Kind::Modify: {
       const auto result = book.modify(cmd.orderId, cmd.order, [&](const Fill &f) { pushFill(w, cmd, f); });
       pushResult(w, cmd, result);
+      break;
+    }
+    case Command::Kind::Rebase: {
+      const auto r = book.rebase(cmd.newBase);
+      // Report each cancelled order as a Cancel event, then the rebase ack.
+      for (const auto id : r.cancelled) {
+        Event e;
+        e.kind = Event::Kind::Cancel;
+        e.symbolIdx = cmd.symbolIdx;
+        e.correlationId = cmd.correlationId;
+        e.cancel.cancelled = true;
+        e.cancel.orderId = id;
+        e.cancel.seq = r.seq;
+        pushOutput(w, e);
+        stats_.cancels.fetch_add(1, std::memory_order_relaxed);
+      }
+      Event e;
+      e.kind = Event::Kind::Rebase;
+      e.symbolIdx = cmd.symbolIdx;
+      e.correlationId = cmd.correlationId;
+      e.rebase.newBase = cmd.newBase;
+      e.rebase.seq = r.seq;
+      pushOutput(w, e);
+      stats_.rebases.fetch_add(1, std::memory_order_relaxed);
       break;
     }
     }
@@ -381,7 +461,9 @@ private:
         }
         break;
       } else if (!++waiter) {
-        std::this_thread::sleep_for(std::chrono::microseconds(100)); // idle: give up the CPU
+        // Idle: give up the CPU. A short sleep bounds idle-wake latency; for
+        // sub-microsecond wakeup use a futex/eventfd at the deployment level.
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
       }
     }
   }
@@ -416,7 +498,7 @@ private:
       if (drain()) {
         waiter.reset();
       } else if (!++waiter) {
-        std::this_thread::sleep_for(std::chrono::microseconds(100)); // idle: give up the CPU
+        std::this_thread::sleep_for(std::chrono::microseconds(1)); // idle: give up the CPU
       }
     }
     // Final drain: workers are already joined, so this catches everything.

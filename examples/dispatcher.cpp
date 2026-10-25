@@ -7,7 +7,7 @@
 
 int main() {
   constexpr std::size_t kSymbols = 4;
-  using Book = flatbook::OrderBook<1u << 15, 1u << 10>;
+  using Book = flatbook::OrderBook<1u << 15, 1u << 10, flatbook::GenerationalId<1u << 15, 24>>;
   using Dispatcher = flatbook::MatchingDispatcher<kSymbols, Book>;
 
   flatbook::MatchingConfig config;
@@ -26,8 +26,13 @@ int main() {
                   static_cast<unsigned long long>(ev.correlationId));
       break;
     case Dispatcher::Event::Kind::Cancel:
-      std::printf("[sym %u] cancel=%d corr=%llu\n", ev.symbolIdx,
-                  static_cast<int>(ev.cancelled),
+      std::printf("[sym %u] cancel=%d id=%u corr=%llu\n", ev.symbolIdx,
+                  static_cast<int>(ev.cancel.cancelled), static_cast<unsigned>(ev.cancel.orderId.index()),
+                  static_cast<unsigned long long>(ev.correlationId));
+      break;
+    case Dispatcher::Event::Kind::Rebase:
+      std::printf("[sym %u] rebase base=%lld corr=%llu\n", ev.symbolIdx,
+                  static_cast<long long>(ev.rebase.newBase),
                   static_cast<unsigned long long>(ev.correlationId));
       break;
     }

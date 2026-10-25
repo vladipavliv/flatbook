@@ -15,7 +15,7 @@
 namespace flatbook {
 namespace {
 
-using Book = OrderBook<1 << 15, 1 << 10>;
+using Book = OrderBook<1 << 15, 1 << 10, GenerationalId<1 << 15, 24>>;
 using Engine = MatchingEngine<Book>;
 using Order = Engine::Order;
 using OrderIdx = Engine::OrderIdx;
@@ -177,7 +177,9 @@ TEST(MatchingDispatcher, CancelModifyMatchReference) {
           results[ev.symbolIdx].push_back(ev.result);
           break;
         case MatchingDispatcher<kSymbols, Book>::Event::Kind::Cancel:
-          cancels[ev.symbolIdx].push_back(ev.cancelled);
+          cancels[ev.symbolIdx].push_back(ev.cancel.cancelled);
+          break;
+        case MatchingDispatcher<kSymbols, Book>::Event::Kind::Rebase:
           break;
         }
       });
@@ -388,6 +390,86 @@ TEST(MatchingDispatcher, CallbackExceptionIsCaptured) {
 
   EXPECT_NE(dispatcher.callbackError(), nullptr);
   EXPECT_GE(calls.load(), 1);
+}
+
+TEST(MatchingDispatcher, CancelEventCarriesIdAndSeq) {
+  using Dispatcher = MatchingDispatcher<1, Book>;
+  std::atomic<bool> gotCancel{false};
+  OrderIdx cancelledId{};
+  bool hadSeq = false;
+
+  Dispatcher dispatcher({.workerCores = {}}, [&](const Dispatcher::Event &ev) {
+    if (ev.kind == Dispatcher::Event::Kind::Cancel) {
+      cancelledId = ev.cancel.orderId;
+      hadSeq = (ev.cancel.seq != 0);
+      gotCancel.store(true, std::memory_order_release);
+    }
+  });
+
+  Order buy{};
+  buy.type = Engine::OrderType::Limit;
+  buy.tif = Engine::TimeInForce::GTC;
+  buy.price = 10;
+  buy.quantity = 1;
+  buy.side = Engine::Side::Buy;
+
+  dispatcher.start();
+  dispatcher.addOrder(0, buy, 0);
+  dispatcher.cancelOrder(0, OrderIdx::fromIndexAndGen(1, 0), 0); // first resting order
+  for (int i = 0; i < 1000000 && !gotCancel.load(std::memory_order_acquire); ++i) {
+    std::this_thread::yield();
+  }
+  dispatcher.stop();
+
+  ASSERT_TRUE(gotCancel.load(std::memory_order_acquire));
+  EXPECT_EQ(cancelledId.index(), 1u);
+  EXPECT_TRUE(hadSeq);
+}
+
+TEST(MatchingDispatcher, RebaseCommandEmitsCancelAndRebase) {
+  using Dispatcher = MatchingDispatcher<1, Book>;
+  std::atomic<int> rebaseCount{0};
+  std::atomic<int> cancelCount{0};
+
+  Dispatcher dispatcher({.workerCores = {}}, [&](const Dispatcher::Event &ev) {
+    if (ev.kind == Dispatcher::Event::Kind::Rebase) {
+      rebaseCount.fetch_add(1, std::memory_order_relaxed);
+    } else if (ev.kind == Dispatcher::Event::Kind::Cancel) {
+      cancelCount.fetch_add(1, std::memory_order_relaxed);
+    }
+  });
+
+  Order buy{};
+  buy.type = Engine::OrderType::Limit;
+  buy.tif = Engine::TimeInForce::GTC;
+  buy.price = 10;
+  buy.quantity = 1;
+  buy.side = Engine::Side::Buy;
+
+  dispatcher.start();
+  dispatcher.addOrder(0, buy, 0);
+  dispatcher.rebase(0, 1000, 77); // window moves past the resting order
+  dispatcher.stop();
+
+  EXPECT_EQ(rebaseCount.load(), 1);
+  EXPECT_EQ(cancelCount.load(), 1); // the resting order was cancelled
+}
+
+TEST(MatchingDispatcher, InvalidSymbolRejected) {
+  using Dispatcher = MatchingDispatcher<1, Book>;
+  Dispatcher dispatcher({.workerCores = {}}, [](const Dispatcher::Event &) {});
+
+  Order buy{};
+  buy.type = Engine::OrderType::Limit;
+  buy.tif = Engine::TimeInForce::GTC;
+  buy.price = 10;
+  buy.quantity = 1;
+  buy.side = Engine::Side::Buy;
+
+  dispatcher.start();
+  EXPECT_FALSE(dispatcher.tryAddOrder(1, buy, 0)); // symbol 1 out of range
+  EXPECT_THROW(dispatcher.addOrder(1, buy, 0), std::out_of_range);
+  dispatcher.stop();
 }
 
 } // namespace

@@ -20,7 +20,7 @@
 namespace flatbook {
 
 constexpr size_t kSymbols = 256;
-using Book = OrderBook<1 << 12, 1 << 9>; // 4096 orders, 512 price levels
+using Book = OrderBook<1 << 12, 1 << 9, GenerationalId<1 << 12, 24>>; // 4096 orders, 512 price levels
 using Engine = MatchingEngine<Book>;
 using Order = Engine::Order;
 using Dispatcher = MatchingDispatcher<kSymbols, Book>;
