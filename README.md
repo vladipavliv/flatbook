@@ -77,11 +77,15 @@ Run the examples in [`examples/`](examples/) (`example_basic`, `example_dispatch
 | LOBSTER market-data replay + book validator | ✅ (benchmark / validation tool) |
 | Python bindings (nanobind, numpy batch API) | ✅ |
 | Fuzzing (libFuzzer: engine, persistence, parser) | ✅ |
-| Circuit breakers / price band + volatility halt | ✅ (`CircuitBreaker`) |
-| Sessions, auctions | ❌ |
 | Stop / iceberg / hidden orders | ❌ |
 | Pro-rata or multi-priority matching | ❌ (price-time only) |
 | Amend that keeps time priority | ❌ (`modify` loses priority) |
+
+Exchange-level concerns - trading sessions, opening/closing auctions, and
+market-wide circuit breakers - are deliberately out of scope: this is a matching
+engine, and those are the exchange's business logic to build on top of it (a
+circuit-breaker *guard* is provided as an optional `CircuitBreaker` utility, not
+a core feature).
 
 ## Price window and rebase
 
