@@ -8,6 +8,7 @@
 //   cmake --build build-fuzz --target flatbook_fuzz
 //   ./build-fuzz/fuzz/flatbook_fuzz -max_total_time=30
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -28,6 +29,36 @@ void pruneStale(Engine &engine, std::vector<Engine::OrderIdx> &live) {
     }
   }
   live.swap(pruned);
+}
+
+// Structural invariants, mirroring the property test's verifyInvariants but
+// using assert() (so ASan/UBSan catch a violation without gtest).
+void verifyInvariants(const Engine &engine) {
+  const auto &book = engine.book();
+  std::size_t counted = 0;
+
+  for (std::uint32_t p = 0; p < Book::kPriceLevels; ++p) {
+    const auto price = static_cast<Engine::Price>(book.base() + p);
+    for (const auto side : {Engine::Side::Buy, Engine::Side::Sell}) {
+      flatbook::Volume sum = 0;
+      auto id = book.head(price, side);
+      while (id != Engine::INVALID_ORDER) {
+        assert(book.isLive(id));
+        assert(book.qty(id) > 0);
+        assert(book.priceOf(id) == price);
+        assert(book.sideOf(id) == side);
+        sum += book.qty(id);
+        ++counted;
+        id = book.nextOf(id);
+      }
+      assert(book.volume(price, side) == sum);
+    }
+  }
+  assert(counted == engine.openOrders());
+
+  if (engine.bestBid() != Engine::INVALID_PRICE && engine.bestAsk() != Engine::INVALID_PRICE) {
+    assert(engine.bestBid() < engine.bestAsk());
+  }
 }
 
 } // namespace
@@ -107,5 +138,6 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     }
   }
 
+  verifyInvariants(engine);
   return 0;
 }

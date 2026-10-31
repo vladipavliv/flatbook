@@ -380,7 +380,7 @@ void verifyInvariants(const FuzzEngine &e) {
   std::size_t counted = 0;
 
   for (std::uint32_t p = 0; p < FuzzBook::kPriceLevels; ++p) {
-    const auto price = static_cast<FuzzEngine::Price>(p);
+    const auto price = static_cast<FuzzEngine::Price>(book.base() + p);
     for (const auto side : {FuzzEngine::Side::Buy, FuzzEngine::Side::Sell}) {
       Volume sum = 0;
       auto id = book.head(price, side);
@@ -423,7 +423,7 @@ TEST(OrderBookProperty, InvariantsHoldUnderRandomOps) {
     const std::uint32_t participant = partDist(rng);
     const int op = opDist(rng);
 
-    if (op < 65) {
+    if (op < 55) {
       FuzzEngine::Order order;
       order.type = FuzzEngine::OrderType::Limit;
       order.price = static_cast<FuzzEngine::Price>(priceDist(rng));
@@ -431,12 +431,14 @@ TEST(OrderBookProperty, InvariantsHoldUnderRandomOps) {
       order.side = side;
       order.participant = participant;
       const int t = tifDist(rng);
-      if (t < 70) {
+      if (t < 60) {
         order.tif = FuzzEngine::TimeInForce::GTC;
-      } else if (t < 85) {
+      } else if (t < 75) {
         order.tif = FuzzEngine::TimeInForce::IOC;
-      } else if (t < 93) {
+      } else if (t < 88) {
         order.tif = FuzzEngine::TimeInForce::FOK;
+      } else if (t < 93) {
+        order.tif = FuzzEngine::TimeInForce::AON;
       } else {
         order.tif = FuzzEngine::TimeInForce::GTC;
         order.postOnly = true;
@@ -445,35 +447,58 @@ TEST(OrderBookProperty, InvariantsHoldUnderRandomOps) {
       if (r.resting()) {
         live.push_back(r.orderId);
       }
-    } else if (op < 82) {
+    } else if (op < 72) {
       FuzzEngine::Order order;
       order.type = FuzzEngine::OrderType::Market;
       order.quantity = qtyDist(rng);
       order.side = side;
       order.participant = participant;
       (void)e.addOrder(order);
-    } else if (op < 92) {
+    } else if (op < 82) {
       if (!live.empty()) {
         const std::size_t idx = std::uniform_int_distribution<std::size_t>(0, live.size() - 1)(rng);
         (void)e.cancelOrder(live[idx]);
         live[idx] = live.back();
         live.pop_back();
       }
-    } else {
+    } else if (op < 90) {
       if (!live.empty()) {
         const std::size_t idx = std::uniform_int_distribution<std::size_t>(0, live.size() - 1)(rng);
-        FuzzEngine::Order replacement;
-        replacement.type = FuzzEngine::OrderType::Limit;
-        replacement.tif = FuzzEngine::TimeInForce::GTC;
-        replacement.price = static_cast<FuzzEngine::Price>(priceDist(rng));
-        replacement.quantity = qtyDist(rng);
-        replacement.side = e.book().sideOf(live[idx]);
-        replacement.participant = e.book().participantOf(live[idx]);
-        const auto r = e.modify(live[idx], replacement);
-        live[idx] = live.back();
-        live.pop_back();
-        if (r.resting()) {
-          live.push_back(r.orderId);
+        if (!e.book().isLive(live[idx])) {
+          live[idx] = live.back();
+          live.pop_back();
+        } else {
+          FuzzEngine::Order replacement;
+          replacement.type = FuzzEngine::OrderType::Limit;
+          replacement.tif = FuzzEngine::TimeInForce::GTC;
+          replacement.price = static_cast<FuzzEngine::Price>(priceDist(rng));
+          replacement.quantity = qtyDist(rng);
+          replacement.side = e.book().sideOf(live[idx]);
+          replacement.participant = e.book().participantOf(live[idx]);
+          const auto r = e.modify(live[idx], replacement);
+          live[idx] = live.back();
+          live.pop_back();
+          if (r.resting()) {
+            live.push_back(r.orderId);
+          }
+        }
+      }
+    } else if (op < 95) {
+      // rebase: shift the price window by a random amount.
+      const auto shift = static_cast<FuzzEngine::Price>(static_cast<int>(priceDist(rng)) -
+                                                        static_cast<int>(FuzzBook::kPriceLevels) / 2);
+      (void)e.rebase(e.base() + shift);
+    } else {
+      // reduce: execute a live order by a random quantity.
+      if (!live.empty()) {
+        const std::size_t idx = std::uniform_int_distribution<std::size_t>(0, live.size() - 1)(rng);
+        const auto id = live[idx];
+        if (e.book().isLive(id)) {
+          const auto remaining = e.book().qty(id);
+          if (remaining > 1) {
+            const auto qty = static_cast<flatbook::Quantity>(qtyDist(rng)) % (remaining - 1) + 1u;
+            (void)e.reduce(id, qty);
+          }
         }
       }
     }
