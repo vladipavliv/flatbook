@@ -39,6 +39,7 @@ a `std::map` book. Methodology and caveats: [docs/BENCHMARKS.md](docs/BENCHMARKS
 - [Price window and rebase](#price-window-and-rebase)
 - [Order ids and determinism](#order-ids-and-determinism)
 - [Architecture](#architecture)
+- [Testing](#testing)
 - [Status and limitations](#status-and-limitations)
 - [Performance](#performance)
 - [Install / use as a dependency](#install--use-as-a-dependency)
@@ -160,6 +161,13 @@ Three layers:
 Fills are reported through a caller-supplied callback (a template parameter, no
 `std::function`), so the engine stays allocation-free on the hot path.
 
+## Testing
+
+~170 unit and property tests plus libFuzzer targets, run under GCC, Clang and
+MSVC; CI also runs ASan + UBSan, TSan, clang-tidy and `-Werror`. Line coverage
+of `include/` is ~94% (gcovr, enforced at ≥85% in CI). Run them with
+`./dev.sh test` / `sanitize` / `tsan` / `fuzz`.
+
 ## Status and limitations
 
 Version **0.2.0** - the API is not yet stable; `0.x` releases may break it (see
@@ -173,8 +181,10 @@ an asynchronous write-ahead log.
 
 ## Performance
 
-Full methodology, per-workload tables, `std::map` / CppTrader baselines, tail
-latency and graphs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+Benchmarked across different configurations and compared with `std::map`,
+CppTrader and Liquibook on the same order streams (apples-to-apples). Full
+methodology, per-workload tables and caveats:
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ## Install / use as a dependency
 

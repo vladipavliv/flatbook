@@ -1,5 +1,11 @@
 # Benchmarks
 
+FlatBook is benchmarked across three book configurations (32K-524K orders,
+1K-262K price levels) and two price distributions (uniform, clustered),
+covering add, rest, cancel, per-order-type and tail latency, plus throughput.
+The same configurations are also run through `std::map`, CppTrader and
+Liquibook reference books, comparing them apples-to-apples.
+
 Measured with Google Benchmark, GCC 15, `-O3` (add `-DFLATBOOK_NATIVE=ON` for
 `-march=native`), `CMAKE_BUILD_TYPE=Release`.
 
@@ -9,7 +15,6 @@ OS: Ubuntu 26.04.1 LTS
 CPU: AMD Ryzen 7 9800X3D 8-Core Processor (8 cores / 16 threads, 96 MB L3, 1 MB L2 per core)  
 RAM: 64 GB @ 5200 MT/s  
 Governor: performance, benchmark pinned to core 3  
-Boost: TODO (on/off)
 
 <!-- BENCHMARKS:REPORT -->
 <!-- Regenerate with: ./dev.sh bench --report -->
