@@ -255,12 +255,12 @@ struct PyEngine {
   /// (length N+1) delimiting each order's fills. The GIL is released for the
   /// whole batch.
   nb::object addOrders(
-      nb::ndarray<nb::numpy, const std::uint8_t, nb::ndim<1>> type,
-      nb::ndarray<nb::numpy, const std::uint8_t, nb::ndim<1>> tif,
-      nb::ndarray<nb::numpy, const std::uint8_t, nb::ndim<1>> side,
-      nb::ndarray<nb::numpy, const std::int64_t, nb::ndim<1>> price,
-      nb::ndarray<nb::numpy, const std::uint32_t, nb::ndim<1>> quantity,
-      nb::ndarray<nb::numpy, const std::uint32_t, nb::ndim<1>> participant) {
+      nb::ndarray<nb::numpy, const std::uint8_t, nb::ndim<1>, nb::c_contig> type,
+      nb::ndarray<nb::numpy, const std::uint8_t, nb::ndim<1>, nb::c_contig> tif,
+      nb::ndarray<nb::numpy, const std::uint8_t, nb::ndim<1>, nb::c_contig> side,
+      nb::ndarray<nb::numpy, const std::int64_t, nb::ndim<1>, nb::c_contig> price,
+      nb::ndarray<nb::numpy, const std::uint32_t, nb::ndim<1>, nb::c_contig> quantity,
+      nb::ndarray<nb::numpy, const std::uint32_t, nb::ndim<1>, nb::c_contig> participant) {
     const std::size_t n = type.shape(0);
     if (tif.shape(0) != n || side.shape(0) != n || price.shape(0) != n ||
         quantity.shape(0) != n || participant.shape(0) != n) {
