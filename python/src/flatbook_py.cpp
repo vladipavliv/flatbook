@@ -258,6 +258,25 @@ struct PyEngine {
         engine_);
   }
 
+  /// Current price-window base (logical `price >= base()` is in-window).
+  std::int64_t base() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::visit([&](auto &ep) { return static_cast<std::int64_t>(ep->base()); }, engine_);
+  }
+
+  /// Shift the price window to @p newBase; returns the number of cancelled
+  /// (out-of-window) resting orders.
+  std::size_t rebase(std::int64_t newBase) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::visit(
+        [&](auto &ep) -> std::size_t {
+          using Engine = std::decay_t<decltype(*ep)>;
+          const auto r = ep->rebase(static_cast<typename Engine::Price>(newBase));
+          return r.cancelled.size();
+        },
+        engine_);
+  }
+
   /// Batch add: all six arrays must have the same length. Returns a dict of
   /// numpy arrays: result, order_id, remaining, seq, reason, and the flattened
   /// fill arrays (fill_price/fill_qty/fill_side/fill_seq) plus fill_offset
@@ -372,6 +391,8 @@ NB_MODULE(flatbook_py, m) {
       .def("best_bid", &PyEngine::bestBid)
       .def("best_ask", &PyEngine::bestAsk)
       .def("open_orders", &PyEngine::openOrders)
+      .def("base", &PyEngine::base)
+      .def("rebase", &PyEngine::rebase, nb::arg("new_base"))
       .def("depth", &PyEngine::depth, nb::arg("n") = 10)
       .def("add_orders", &PyEngine::addOrders, nb::arg("type"), nb::arg("tif"), nb::arg("side"),
            nb::arg("price"), nb::arg("quantity"), nb::arg("participant"));

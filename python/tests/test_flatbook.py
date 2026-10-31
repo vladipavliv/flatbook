@@ -234,4 +234,24 @@ def test_concurrent_batch_does_not_corrupt():
     assert e.open_orders() >= 0
 
 
+def test_base_and_rebase():
+    e = fb.MatchingEngine("medium")
+    assert e.base() == 0  # default window starts at 0
+
+    # Rest an order near the window edge, then shift the window far away.
+    e.add_order(fb.LIMIT, fb.GTC, fb.SELL, 100, 1, 0)
+    assert e.open_orders() == 1
+
+    cancelled = e.rebase(1000)
+    assert e.base() == 1000
+    assert cancelled == 1  # the order at 100 fell out of the new window
+    assert e.open_orders() == 0
+
+    # Orders at the new window are still accepted.
+    r = e.add_order(fb.LIMIT, fb.GTC, fb.BUY, 1100, 1, 0)
+    assert r["result"] == 1  # Resting
+    assert e.base() == 1000
+
+
+
 

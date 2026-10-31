@@ -41,6 +41,12 @@ class MatchingEngine:
 
     def open_orders(self) -> int: ...
 
+    def base(self) -> int: ...
+
+    def rebase(self, new_base: int) -> int:
+        """Shift the price window to new_base; returns the number of cancelled orders."""
+        ...
+
     def depth(
         self, n: int = 10
     ) -> tuple[NDArray[np.int64], NDArray[np.uint32], NDArray[np.int64], NDArray[np.uint32]]:
