@@ -4,6 +4,9 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: read
+
 jobs:
   build-wheels:
     name: Build wheels (${{ matrix.os }})
@@ -44,6 +47,7 @@ jobs:
     needs: [build-wheels, build-sdist]
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
     steps:
       - name: Download all artifacts
