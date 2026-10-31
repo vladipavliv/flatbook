@@ -17,9 +17,9 @@
 #endif
 
 #include "MatchingEngine.hpp"
+#include "Parker.hpp"
 #include "SpinWait.hpp"
 #include "SpscQueue.hpp"
-#include "Wait.hpp"
 
 namespace flatbook {
 
@@ -205,12 +205,10 @@ public:
     if (!started_.compare_exchange_strong(expected, false, std::memory_order_acq_rel)) {
       return;
     }
-    // 1. Tell workers to stop and wake any that are asleep on the futex.
+    // 1. Tell workers to stop and wake any that are parked.
     for (auto &w : workers_) {
       w->stop.store(true, std::memory_order_seq_cst);
-      if (w->sleeping.load(std::memory_order_seq_cst)) {
-        detail::futexNotify(w->waitWord);
-      }
+      w->parker.unpark();
     }
     // 2. Join workers: any remaining orders are processed and pushed to output.
     for (auto &w : workers_) {
@@ -218,11 +216,9 @@ public:
         w->thread.join();
       }
     }
-    // 3. Stop the collector; wake it if asleep, then join (final drain).
+    // 3. Stop the collector; wake it if parked, then join (final drain).
     stop_.store(true, std::memory_order_seq_cst);
-    if (collectorSleeping_.load(std::memory_order_seq_cst)) {
-      detail::futexNotify(collectorWaitWord_);
-    }
+    collectorParker_.unpark();
     if (collector_.joinable()) {
       collector_.join();
     }
@@ -371,10 +367,7 @@ private:
     SpscQueue<QueueCapacity> output;
     std::thread thread;
     std::atomic<bool> stop{false};
-    // Hybrid idle wait: the worker spins, then sets `sleeping` and blocks on
-    // `waitWord`; the ingress wakes it (fetch_add + futex) only when asleep.
-    alignas(64) std::atomic<std::uint32_t> waitWord{0};
-    alignas(64) std::atomic<bool> sleeping{false};
+    Parker parker;
   };
 
   void post(uint32_t symbolIdx, const Command &cmd) {
@@ -384,14 +377,13 @@ private:
     Worker &w = *workers_[workerOf_[symbolIdx]];
     SpinWait waiter;
     while (!w.input.write(cmd)) {
+      w.parker.unpark();
       if (!++waiter) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     }
     stats_.submitted.fetch_add(1, std::memory_order_relaxed);
-    if (w.sleeping.load(std::memory_order_seq_cst)) [[unlikely]] {
-      detail::futexNotify(w.waitWord);
-    }
+    w.parker.unpark();
   }
 
   /// Single-attempt enqueue: false when the symbol is invalid or the worker's
@@ -405,9 +397,7 @@ private:
     Worker &w = *workers_[workerOf_[symbolIdx]];
     if (w.input.write(cmd)) {
       stats_.submitted.fetch_add(1, std::memory_order_relaxed);
-      if (w.sleeping.load(std::memory_order_seq_cst)) [[unlikely]] {
-        detail::futexNotify(w.waitWord);
-      }
+      w.parker.unpark();
       return true;
     }
     stats_.rejected.fetch_add(1, std::memory_order_relaxed);
@@ -491,14 +481,15 @@ private:
   }
 
   void pushOutput(Worker &w, const Event &e) {
+    // No per-event unpark: the worker unparks the collector once per batch in
+    // workerLoop (cheaper), except here where the output is full and the
+    // collector must be woken to make space.
     SpinWait waiter;
     while (!w.output.write(e)) {
+      collectorParker_.unpark();
       if (!++waiter) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
-    }
-    if (collectorSleeping_.load(std::memory_order_seq_cst)) [[unlikely]] {
-      detail::futexNotify(collectorWaitWord_);
     }
   }
 
@@ -511,6 +502,7 @@ private:
         do {
           process(w, cmd);
         } while (w.input.read(cmd));
+        collectorParker_.unpark(); // wake the collector once per batch of output writes
         continue;
       }
       if (w.stop.load(std::memory_order_seq_cst)) {
@@ -518,30 +510,16 @@ private:
         while (w.input.read(cmd)) {
           process(w, cmd);
         }
+        collectorParker_.unpark();
         break;
       }
       if (++waiter) {
         continue; // still within the spin/yield budget
       }
-      // Spin budget exhausted: hybrid spin-then-block on a futex.
-      const std::uint32_t word = w.waitWord.load(std::memory_order_acquire);
-      w.sleeping.store(true, std::memory_order_seq_cst);
-      // Double-check: a command may have raced in since the last read.
-      if (w.input.read(cmd)) {
-        w.sleeping.store(false, std::memory_order_seq_cst);
-        waiter.reset();
-        process(w, cmd);
-        continue;
-      }
-      if (w.stop.load(std::memory_order_seq_cst)) {
-        w.sleeping.store(false, std::memory_order_seq_cst);
-        while (w.input.read(cmd)) {
-          process(w, cmd);
-        }
-        break;
-      }
-      detail::futexWait(w.waitWord, word);
-      w.sleeping.store(false, std::memory_order_seq_cst);
+      // Spin budget exhausted: park until there is work or a stop.
+      w.parker.park([&] {
+        return !w.input.empty() || w.stop.load(std::memory_order_seq_cst);
+      });
       waiter.reset();
     }
   }
@@ -580,21 +558,15 @@ private:
       if (++waiter) {
         continue; // still within the spin/yield budget
       }
-      // Spin budget exhausted: hybrid spin-then-block on a futex.
-      const std::uint32_t word = collectorWaitWord_.load(std::memory_order_acquire);
-      collectorSleeping_.store(true, std::memory_order_seq_cst);
-      // Double-check before sleeping (avoid a lost wakeup).
-      if (drain()) {
-        collectorSleeping_.store(false, std::memory_order_seq_cst);
-        waiter.reset();
-        continue;
-      }
-      if (stop_.load(std::memory_order_seq_cst)) {
-        collectorSleeping_.store(false, std::memory_order_seq_cst);
-        break;
-      }
-      detail::futexWait(collectorWaitWord_, word);
-      collectorSleeping_.store(false, std::memory_order_seq_cst);
+      // Spin budget exhausted: park until some output has data or a stop.
+      collectorParker_.park([&] {
+        for (auto &wp : workers_) {
+          if (!wp->output.empty()) {
+            return true;
+          }
+        }
+        return stop_.load(std::memory_order_seq_cst);
+      });
       waiter.reset();
     }
     // Final drain: workers are already joined, so this catches everything.
@@ -642,9 +614,8 @@ private:
   Stats stats_{};
   std::exception_ptr callbackError_{};
 
-  // --- Collector idle-wait (futex) ---
-  alignas(64) std::atomic<std::uint32_t> collectorWaitWord_{0};
-  alignas(64) std::atomic<bool> collectorSleeping_{false};
+  // --- Collector idle-wait ---
+  Parker collectorParker_;
 };
 
 /**
