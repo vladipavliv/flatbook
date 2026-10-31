@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <random>
 #include <stdexcept>
@@ -481,6 +482,48 @@ TEST(MatchingDispatcher, StartStopAreIdempotent) {
   dispatcher.stop();
   dispatcher.stop(); // second stop is a no-op
   dispatcher.stop(); // stop without start is a no-op
+}
+
+TEST(MatchingDispatcher, NoLostWakeupUnderRepeatedSubmit) {
+  constexpr size_t kSymbols = 1;
+  std::atomic<std::uint64_t> results{0};
+
+  MatchingConfig config; // empty workerCores => one worker, no pinning
+  auto dispatcher = makeDispatcher<kSymbols, Book>(
+      config, [&](const MatchingDispatcher<kSymbols, Book>::Event &ev) {
+        if (ev.kind == MatchingDispatcher<kSymbols, Book>::Event::Kind::Result) {
+          results.fetch_add(1, std::memory_order_release);
+        }
+      });
+  dispatcher.start();
+
+  Order o{};
+  o.type = Engine::OrderType::Limit;
+  o.tif = Engine::TimeInForce::GTC;
+  o.price = 100;
+  o.quantity = 1;
+  o.side = Engine::Side::Buy;
+
+  constexpr int kIterations = 20000;
+  std::uint64_t expected = 0;
+  for (int i = 0; i < kIterations; ++i) {
+    dispatcher.addOrder(0, o);
+    ++expected;
+    // Wait for the Result with a timeout: a lost wakeup would stall here.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (results.load(std::memory_order_acquire) < expected) {
+      if (std::chrono::steady_clock::now() > deadline) {
+        dispatcher.stop();
+        FAIL() << "lost wakeup at iteration " << i;
+      }
+      std::this_thread::yield();
+    }
+    // Small pause so the worker/collector can park before the next submit.
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+  }
+
+  dispatcher.stop();
+  EXPECT_EQ(results.load(std::memory_order_acquire), expected);
 }
 
 } // namespace

@@ -17,6 +17,7 @@ add_executable(flatbook_tests
     src/TestLobster.cpp
     src/TestOrderBook.cpp
     src/TestOrderBookContainer.cpp
+    src/TestParker.cpp
     src/TestProperty.cpp
     src/TestSpsc.cpp
 )
