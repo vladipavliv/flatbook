@@ -8,6 +8,7 @@ MARKET: int
 GTC: int
 IOC: int
 FOK: int
+AON: int
 BUY: int
 SELL: int
 

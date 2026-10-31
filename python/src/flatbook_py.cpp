@@ -79,7 +79,7 @@ nb::object makeResult(const typename Engine::AddResult &r,
 template <typename Engine>
 bool makeOrder(typename Engine::Order &o, int type, int tif, int side, std::int64_t price,
                std::uint32_t quantity, std::uint32_t participant, bool postOnly) {
-  if (type < 0 || type > 1 || tif < 0 || tif > 2 || side < 0 || side > 1) {
+  if (type < 0 || type > 1 || tif < 0 || tif > 3 || side < 0 || side > 1) {
     return false;
   }
   o.type = static_cast<typename Engine::OrderType>(type);

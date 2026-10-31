@@ -175,3 +175,34 @@ def test_batch_fill_offsets():
     np.testing.assert_array_equal(r["fill_price"], np.array([100, 100], dtype=np.int64))
     np.testing.assert_array_equal(r["fill_qty"], np.array([2, 3], dtype=np.uint32))
 
+
+def test_aon():
+    e = fb.MatchingEngine("medium")
+    # AON that can fill fully does.
+    e.add_order(fb.LIMIT, fb.GTC, fb.SELL, 100, 10, 0)
+    r = e.add_order(fb.LIMIT, fb.AON, fb.BUY, 100, 10, 0)
+    assert r["result"] == 0  # Filled
+    assert len(r["fills"]) == 1
+
+    # AON that cannot fill fully is rejected with AonInsufficientLiquidity (6).
+    e.add_order(fb.LIMIT, fb.GTC, fb.SELL, 100, 5, 0)
+    r = e.add_order(fb.LIMIT, fb.AON, fb.BUY, 100, 10, 0)
+    assert r["result"] == 3  # Rejected
+    assert r["reason"] == 6  # AonInsufficientLiquidity
+
+
+def test_aon_batch():
+    e = fb.MatchingEngine("medium")
+    e.add_order(fb.LIMIT, fb.GTC, fb.SELL, 100, 5, 0)
+    n = 1
+    types = np.full(n, fb.LIMIT, dtype=np.uint8)
+    tifs = np.full(n, fb.AON, dtype=np.uint8)
+    sides = np.full(n, fb.BUY, dtype=np.uint8)
+    prices = np.array([100], dtype=np.int64)
+    qty = np.array([10], dtype=np.uint32)
+    part = np.zeros(n, dtype=np.uint32)
+    r = e.add_orders(types, tifs, sides, prices, qty, part)
+    assert r["result"][0] == 3  # Rejected
+    assert r["reason"][0] == 6  # AonInsufficientLiquidity
+
+
