@@ -1,30 +1,10 @@
-# Comparison
+# Benchmark comparison
 
-FlatBook is compared against `std::map` and CppTrader reference books and
-Liquibook on the same order streams and book sizes - apples-to-apples: same
-prices, sides and crossing rate. Same test environment and methodology as
-[BENCHMARKS.md](BENCHMARKS.md).
-
-## Feature comparison
-
-`std::map` and CppTrader are containers, not matchers; they are included only as
-data-structure baselines on the resting path.
-
-| Capability | FlatBook | Liquibook | CppTrader | std::map |
-|---|---|---|---|---|
-| Matching engine (crossing, fills) | ✅ | ✅ | — | — |
-| Limit / market orders | ✅ | ✅ | — | — |
-| IOC / FOK / AON | ✅ | IOC / AON | — | — |
-| Post-only | ✅ | — | — | — |
-| Self-trade prevention | ✅ | — | — | — |
-| Deterministic sequence numbers | ✅ | — | — | — |
-| Generational order ids | ✅ | — | — | — |
-| Multi-symbol dispatcher | ✅ | — | — | — |
-| Allocation-free hot path | ✅ | — | — | — |
-| Python bindings | ✅ | — | — | — |
-
-`—` = not provided / not applicable. Only features exercised by this project's
-benchmarks are listed for Liquibook; it also has stop orders (not measured here).
+FlatBook's latency is compared against `std::map`, `std::unordered_map`,
+CppTrader and Liquibook reference implementations on the same order streams and
+book sizes - apples-to-apples: same prices, sides and crossing rate. Same test
+environment and methodology as [BENCHMARKS.md](BENCHMARKS.md). This document is
+benchmark-only: it covers numbers, not a feature matrix.
 
 ## std::map baseline
 
