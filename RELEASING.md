@@ -7,7 +7,7 @@
 - `1.0.0` - freezes the public API.
 
 The version is declared in **four places** and must stay in sync (checked by
-`./dev.sh` in CI via `scripts/check_version.py`):
+`scripts/check_version.py` in CI):
 
 - `CMakeLists.txt` (`project(... VERSION x.y.z)`)
 - `vcpkg.json` (`"version"`)
@@ -37,7 +37,7 @@ The items below are the plan for leaving `0.x`. Check them off as they land.
 - [x] Python bindings (`pip install .`, pytest, stubs, batch API).
 - [x] Honest benchmarks (baseline subtraction, `--report`, real matcher baseline).
 - [x] libFuzzer targets (engine, LOBSTER parser) in CI.
-- [ ] aarch64 CI matrix green.
+- [x] aarch64 CI matrix green.
 - [ ] `pip install` / `find_package` smoke tests for the C++ consumer in CI.
 - [ ] At least one external user / third-party audit.
 

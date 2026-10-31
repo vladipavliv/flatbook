@@ -9,6 +9,31 @@ While the project is in `0.x`, the minor version may introduce breaking API
 changes (`0.1.0` → `0.2.0`); patch releases (`0.1.0` → `0.1.1`) are
 backward-compatible fixes only.
 
+## [Unreleased]
+
+### Added
+
+- AON (`TimeInForce::AON`) order type: all-or-none, like FOK.
+- `CircuitBreaker<Engine>`: price band + volatility halt wrapper.
+- `Parker`: lost-wakeup-safe park/unpark via `std::atomic::wait/notify`.
+- `Threading.hpp`: `pinCurrentThread` / `setCurrentThreadRealTime`.
+- `MatchingConfig::collectorCore`: pin (and real-time) the collector thread.
+
+### Changed
+
+- Benchmarks: depth scales with book capacity; HashMapBook/Liquibook baselines
+  are reproducible via `./dev.sh bench --refs`.
+
+### Fixed
+
+- Dispatcher lost-wakeup race (missing StoreLoad barrier) — fixed by `Parker`.
+- LOBSTER type 5 (hidden execution) no longer mutates the visible book.
+- Python: AON accepted, batch arrays require C-contiguity, engine is thread-safe.
+
+### Removed
+
+- `Wait.hpp` (futex wait/wake) — replaced by `Parker`.
+
 ## [0.2.0] - 2026-10-26
 
 Initial development. No stable release yet.
@@ -57,6 +82,8 @@ Initial development. No stable release yet.
 - `Lobster` replay (`LobsterReplay` throughput benchmark and `LobsterFeed`
   feed-driven replay), orderbook parsing, and `LobsterValidator` for validating a
   feed against the LOBSTER orderbook file.
+- Python bindings (nanobind): single + batch API, `.pyi` stubs, pytest, and
+  scikit-build-core packaging (`pip install .`).
 - `Parker`: lost-wakeup-safe park/unpark via `std::atomic::wait/notify`, used by
   the hybrid spin-then-block idle loop.
 - Test suite: unit, container, engine, property, invariant-fuzz, LOBSTER and

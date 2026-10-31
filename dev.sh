@@ -10,8 +10,9 @@ set -euo pipefail
 #   ./dev.sh tsan               # Debug + ThreadSanitizer + tests
 #   ./dev.sh fuzz [seconds]     # libFuzzer build + short fuzz run (Clang)
 #   ./dev.sh tidy               # clang-tidy over the library headers (Clang)
-#   ./dev.sh bench [--no-build] [--refs] # build + run benchmarks + plot docs/*.png
+#   ./dev.sh bench [--no-build] [--refs] [--report] # build + run benchmarks + plot docs/*.png
 #   ./dev.sh tail               # per-op latency percentiles (p50..p99.9/max)
+#   ./dev.sh headers            # check each header compiles standalone
 #   ./dev.sh all                # test + sanitize + bench
 #
 # Env:

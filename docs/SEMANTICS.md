@@ -1,8 +1,8 @@
 # Semantics
 
-This document specifies FlatBook's edge-case behavior. Each statement is tied to
-a test in `tests/src/` (referenced as `TestFile.TestName`). If a statement has
-no test, that is a bug in this document.
+This document specifies FlatBook's edge-case behavior. Statements are tied to a
+test in `tests/src/` where one exists (referenced as `TestFile.TestName`);
+statements without a reference are known gaps, not guarantees.
 
 ## Order types and time-in-force
 
@@ -39,6 +39,9 @@ no test, that is a bug in this document.
   `StpCancelNewest`, instead of resting.
 - STP only prunes fills against the aggressor's own orders; it never changes the
   price-time order of other participants' fills.
+- For IOC (and any non-resting TIF), the STP-cancelled remainder is discarded
+  with `Cancelled` and **no** `StpCancelNewest` reason — that reason only applies
+  to the GTC resting path.
 
 ## Cancel and modify
 
