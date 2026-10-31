@@ -5,6 +5,7 @@ build-tsan/
 build-fuzz/
 build-tidy/
 build-py/
+build-cov/
 cmake-build-*/
 
 # libFuzzer evolved corpus (regenerated on every run).

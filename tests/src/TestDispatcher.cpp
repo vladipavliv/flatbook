@@ -472,5 +472,16 @@ TEST(MatchingDispatcher, InvalidSymbolRejected) {
   dispatcher.stop();
 }
 
+TEST(MatchingDispatcher, StartStopAreIdempotent) {
+  using Dispatcher = MatchingDispatcher<1, Book>;
+  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}}, [](const Dispatcher::Event &) {});
+
+  dispatcher.start();
+  dispatcher.start(); // second start is a no-op
+  dispatcher.stop();
+  dispatcher.stop(); // second stop is a no-op
+  dispatcher.stop(); // stop without start is a no-op
+}
+
 } // namespace
 } // namespace flatbook

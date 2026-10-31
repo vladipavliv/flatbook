@@ -1193,5 +1193,81 @@ TEST(OrderBook, ResultStructsStaySmall) {
   SUCCEED();
 }
 
+// ---------------------------------------------------------------------------
+// Snapshot / restore
+// ---------------------------------------------------------------------------
+
+TEST(OrderBook, SnapshotRestoreRoundTrip) {
+  Engine a;
+  Fills fills;
+
+  submit(a, limit(100, 10, Side::Sell), fills);
+  submit(a, limit(101, 5, Side::Sell), fills);
+  auto bid = submit(a, limit(99, 7, Side::Buy), fills);
+  submit(a, limit(100, 12, Side::Buy), fills); // fills 10@100, rests 2@100
+  ASSERT_TRUE(a.cancelOrder(bid.orderId).cancelled);
+
+  const auto snap = a.snapshot();
+  Engine b;
+  b.restore(snap);
+
+  EXPECT_EQ(b.openOrders(), a.openOrders());
+  EXPECT_EQ(b.bestBid(), a.bestBid());
+  EXPECT_EQ(b.bestAsk(), a.bestAsk());
+  EXPECT_EQ(b.base(), a.base());
+  EXPECT_EQ(b.lastSequence(), a.lastSequence());
+
+  // Identical continuation must reproduce identical fills and resting id.
+  Fills contA, contB;
+  const auto ra = submit(a, limit(101, 7, Side::Buy), contA);
+  const auto rb = submit(b, limit(101, 7, Side::Buy), contB);
+  EXPECT_EQ(ra.result, rb.result);
+  EXPECT_EQ(ra.orderId.index(), rb.orderId.index());
+  EXPECT_EQ(ra.seq, rb.seq);
+  ASSERT_EQ(contA.size(), contB.size());
+  for (std::size_t i = 0; i < contA.size(); ++i) {
+    EXPECT_EQ(contA[i].orderId.index(), contB[i].orderId.index());
+    EXPECT_EQ(contA[i].price, contB[i].price);
+    EXPECT_EQ(contA[i].quantity, contB[i].quantity);
+    EXPECT_EQ(contA[i].side, contB[i].side);
+    EXPECT_EQ(contA[i].seq, contB[i].seq);
+  }
+}
+
+TEST(OrderBook, SnapshotRestorePreservesIdGeneration) {
+  using GenBook = OrderBook<64, 256, GenerationalId<64, 16>>;
+  using GenEngine = MatchingEngine<GenBook>;
+  using GenOrder = GenEngine::Order;
+
+  GenEngine a;
+  std::vector<GenEngine::Fill> fills;
+  const auto sell = [] {
+    return GenOrder{.type = GenEngine::OrderType::Limit,
+                    .tif = GenEngine::TimeInForce::GTC,
+                    .price = 100,
+                    .quantity = 1,
+                    .side = GenEngine::Side::Sell};
+  };
+
+  const auto first = a.addOrder(sell(), [&](const GenEngine::Fill &f) { fills.push_back(f); });
+  ASSERT_TRUE(first.resting());
+  ASSERT_TRUE(a.cancelOrder(first.orderId).cancelled);
+  const auto second = a.addOrder(sell(), [&](const GenEngine::Fill &f) { fills.push_back(f); });
+  ASSERT_TRUE(second.resting());
+  EXPECT_EQ(second.orderId.index(), first.orderId.index()); // LIFO slot reuse
+  EXPECT_GT(second.orderId.generation(), first.orderId.generation()); // generation bumped
+
+  const auto snap = a.snapshot();
+  GenEngine b;
+  b.restore(snap);
+
+  // The restored engine must hand out the same next id (slot + generation).
+  std::vector<GenEngine::Fill> contA, contB;
+  const auto ra = a.addOrder(sell(), [&](const GenEngine::Fill &f) { contA.push_back(f); });
+  const auto rb = b.addOrder(sell(), [&](const GenEngine::Fill &f) { contB.push_back(f); });
+  EXPECT_EQ(ra.orderId.index(), rb.orderId.index());
+  EXPECT_EQ(ra.orderId.generation(), rb.orderId.generation());
+}
+
 } // namespace
 } // namespace flatbook

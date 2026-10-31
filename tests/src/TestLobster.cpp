@@ -295,5 +295,219 @@ TEST(Lobster, ValidatorDetectsMismatch) {
   EXPECT_EQ(r.actualSize, 6u);
 }
 
+TEST(Lobster, MatchesTopNEmptyBook) {
+  ValEngine e;
+  OrderbookLevel levels[1] = {{9999999999LL, 0, -9999999999LL, 0}};
+  std::size_t mismatchLevel = 0;
+  bool askSide = true;
+  std::int64_t eP = 0, aP = 0;
+  std::uint64_t eS = 0, aS = 0;
+  EXPECT_TRUE(matchesTopN(e, levels, 1, mismatchLevel, askSide, eP, eS, aP, aS));
+}
+
+TEST(Lobster, ValidatorDetectsBidMismatch) {
+  const char *mp = "lobster_val_msg.csv";
+  const char *op = "lobster_val_ob.csv";
+  {
+    std::FILE *mf = std::fopen(mp, "w");
+    ASSERT_NE(mf, nullptr);
+    std::fprintf(mf, "0.0 1 1 10 100 -1\n"); // submit sell 10 @ 100
+    std::fprintf(mf, "0.1 1 2 5 99 1\n");    // submit buy 5 @ 99
+    std::fclose(mf);
+  }
+  {
+    std::FILE *of = std::fopen(op, "w");
+    ASSERT_NE(of, nullptr);
+    std::fprintf(of, "100 10 -9999999999 0\n"); // after msg 1
+    std::fprintf(of, "100 10 99 4\n");          // after msg 2: wrong bid size
+    std::fclose(of);
+  }
+
+  ValEngine e;
+  const auto r = validateLobster(e, mp, op, 1);
+  std::remove(mp);
+  std::remove(op);
+
+  EXPECT_FALSE(r.ok);
+  EXPECT_EQ(r.line, 2u);
+  EXPECT_EQ(r.level, 1u);
+  EXPECT_FALSE(r.askSide); // mismatch on the bid side
+  EXPECT_EQ(r.expectedSize, 4u);
+  EXPECT_EQ(r.actualSize, 5u);
+}
+
+TEST(Lobster, ValidatorMissingFile) {
+  ValEngine e;
+
+  // Neither file exists.
+  auto r = validateLobster(e, "lobster_no_msg.csv", "lobster_no_ob.csv", 1);
+  EXPECT_FALSE(r.ok);
+  EXPECT_EQ(r.line, 0u);
+
+  // Message file missing, orderbook present.
+  {
+    std::FILE *of = std::fopen("lobster_ob_only.csv", "w");
+    ASSERT_NE(of, nullptr);
+    std::fprintf(of, "100 10 -9999999999 0\n");
+    std::fclose(of);
+  }
+  r = validateLobster(e, "lobster_no_msg.csv", "lobster_ob_only.csv", 1);
+  EXPECT_FALSE(r.ok);
+  std::remove("lobster_ob_only.csv");
+
+  // Orderbook missing, message present.
+  {
+    std::FILE *mf = std::fopen("lobster_msg_only.csv", "w");
+    ASSERT_NE(mf, nullptr);
+    std::fprintf(mf, "0.0 1 1 10 100 -1\n");
+    std::fclose(mf);
+  }
+  r = validateLobster(e, "lobster_msg_only.csv", "lobster_no_ob.csv", 1);
+  EXPECT_FALSE(r.ok);
+  std::remove("lobster_msg_only.csv");
+}
+
+TEST(Lobster, ValidatorLineCountMismatch) {
+  const char *mp = "lobster_val_msg.csv";
+  const char *op = "lobster_val_ob.csv";
+  {
+    std::FILE *mf = std::fopen(mp, "w");
+    ASSERT_NE(mf, nullptr);
+    std::fprintf(mf, "0.0 1 1 10 100 -1\n");
+    std::fprintf(mf, "0.1 1 2 5 99 1\n"); // one extra message
+    std::fclose(mf);
+  }
+  {
+    std::FILE *of = std::fopen(op, "w");
+    ASSERT_NE(of, nullptr);
+    std::fprintf(of, "100 10 -9999999999 0\n"); // only one orderbook line
+    std::fclose(of);
+  }
+
+  ValEngine e;
+  const auto r = validateLobster(e, mp, op, 1);
+  std::remove(mp);
+  std::remove(op);
+
+  EXPECT_FALSE(r.ok);
+  EXPECT_EQ(r.messages, 1u);
+  EXPECT_EQ(r.line, 2u); // messages + 1
+}
+
+TEST(Lobster, ValidatorMessageParseFailure) {
+  const char *mp = "lobster_val_msg.csv";
+  const char *op = "lobster_val_ob.csv";
+  {
+    std::FILE *mf = std::fopen(mp, "w");
+    ASSERT_NE(mf, nullptr);
+    std::fprintf(mf, "garbage\n");
+    std::fclose(mf);
+  }
+  {
+    std::FILE *of = std::fopen(op, "w");
+    ASSERT_NE(of, nullptr);
+    std::fprintf(of, "9999999999 0 -9999999999 0\n");
+    std::fclose(of);
+  }
+
+  ValEngine e;
+  const auto r = validateLobster(e, mp, op, 1);
+  std::remove(mp);
+  std::remove(op);
+
+  EXPECT_FALSE(r.ok);
+  EXPECT_EQ(r.messages, 1u);
+  EXPECT_EQ(r.line, 1u);
+}
+
+TEST(Lobster, ValidatorOrderbookParseFailure) {
+  const char *mp = "lobster_val_msg.csv";
+  const char *op = "lobster_val_ob.csv";
+  {
+    std::FILE *mf = std::fopen(mp, "w");
+    ASSERT_NE(mf, nullptr);
+    std::fprintf(mf, "0.0 1 1 10 100 -1\n");
+    std::fclose(mf);
+  }
+  {
+    std::FILE *of = std::fopen(op, "w");
+    ASSERT_NE(of, nullptr);
+    std::fprintf(of, "garbage\n");
+    std::fclose(of);
+  }
+
+  ValEngine e;
+  const auto r = validateLobster(e, mp, op, 1);
+  std::remove(mp);
+  std::remove(op);
+
+  EXPECT_FALSE(r.ok);
+  EXPECT_EQ(r.messages, 1u);
+  EXPECT_EQ(r.line, 1u);
+}
+
+TEST(Lobster, FeedPartialCancelAndReduceToZero) {
+  Engine e; // window [0, 64)
+  LobsterFeed<Engine> feed(e);
+
+  feed.message(1, 1, 10, 50, false); // sell 10 @ 50
+  feed.message(2, 1, 3, 50, false);  // partial cancel 3
+  EXPECT_EQ(e.book().volume(50, Side::Sell), 7u);
+
+  feed.message(4, 1, 7, 50, false); // execute 7 -> reduce to zero
+  EXPECT_EQ(e.openOrders(), 0u);
+  EXPECT_EQ(feed.stats().partialCancels, 1u);
+  EXPECT_EQ(feed.stats().executions, 1u);
+}
+
+TEST(Lobster, FeedUnknownAndCrossOrHalt) {
+  Engine e;
+  LobsterFeed<Engine> feed(e);
+
+  feed.message(2, 99, 3, 50, false); // partial cancel of unknown
+  feed.message(3, 99, 0, 50, false); // delete of unknown
+  feed.message(4, 99, 1, 50, false); // execute of unknown
+  feed.message(6, 0, 0, 0, false);   // cross
+  feed.message(7, 0, 0, 0, false);   // halt
+  EXPECT_EQ(feed.stats().skipped, 5u);
+}
+
+TEST(Lobster, ReplayUnknownOrderAndCrossOrHalt) {
+  Engine e;
+  LobsterReplay<Engine> replay(e);
+
+  replay.message(2, 99, 3, 50, false); // partial cancel of unknown
+  replay.message(3, 99, 0, 50, false); // delete of unknown
+  replay.message(4, 99, 1, 50, false); // execute of unknown
+  replay.message(6, 0, 0, 0, false);   // cross
+  EXPECT_EQ(replay.stats().skipped, 4u);
+}
+
+TEST(Lobster, ReplayReduceToZeroErases) {
+  Engine e;
+  LobsterReplay<Engine> replay(e);
+
+  replay.message(1, 1, 10, 50, false); // sell 10 @ 50
+  replay.message(4, 1, 10, 50, false); // execute 10 -> reduce to zero
+  EXPECT_EQ(e.openOrders(), 0u);
+
+  replay.message(4, 1, 1, 50, false); // stale reference now skipped
+  EXPECT_EQ(replay.stats().executions, 2u);
+  EXPECT_EQ(replay.stats().skipped, 1u);
+}
+
+TEST(Lobster, ReplayStaleReferenceAfterFullFill) {
+  Engine e;
+  LobsterReplay<Engine> replay(e);
+
+  replay.message(1, 1, 10, 50, false); // sell 10 @ 50 (id 1)
+  replay.message(1, 2, 10, 50, true);  // buy fully fills id 1 (slot recycled)
+
+  // The map still holds the stale id; reduceBy must see it as not-live.
+  replay.message(2, 1, 5, 50, false);
+  EXPECT_EQ(replay.stats().partialCancels, 1u);
+  EXPECT_EQ(replay.stats().skipped, 0u);
+}
+
 } // namespace
 } // namespace flatbook
