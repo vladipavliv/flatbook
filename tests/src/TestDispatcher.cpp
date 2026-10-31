@@ -268,7 +268,7 @@ TEST(MatchingDispatcher, EventsCarryCorrelationId) {
   std::uint64_t cancelCorr = 0;
   OrderIdx restingId{};
 
-  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}}, [&](const Dispatcher::Event &ev) {
+  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}, .collectorCore = {}}, [&](const Dispatcher::Event &ev) {
     if (ev.kind == Dispatcher::Event::Kind::Result) {
       resultCorr = ev.correlationId;
       restingId = ev.result.orderId;
@@ -307,7 +307,7 @@ TEST(MatchingDispatcher, EventsCarryCorrelationId) {
 TEST(MatchingDispatcher, TrySubmitReportsFull) {
   using Dispatcher = MatchingDispatcher<1, Book, 1 << 4>; // small input queue
   std::atomic<size_t> results{0};
-  auto dispatcher = makeDispatcher<1, Book, 1 << 4>({.workerCores = {}}, [&](const Dispatcher::Event &ev) {
+  auto dispatcher = makeDispatcher<1, Book, 1 << 4>({.workerCores = {}, .collectorCore = {}}, [&](const Dispatcher::Event &ev) {
     if (ev.kind == Dispatcher::Event::Kind::Result) {
       results.fetch_add(1, std::memory_order_relaxed);
     }
@@ -343,7 +343,7 @@ TEST(MatchingDispatcher, TrySubmitReportsFull) {
 
 TEST(MatchingDispatcher, StatsCountEvents) {
   using Dispatcher = MatchingDispatcher<1, Book>;
-  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}}, [](const Dispatcher::Event &) {});
+  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}, .collectorCore = {}}, [](const Dispatcher::Event &) {});
 
   Order buy{};
   buy.type = Engine::OrderType::Limit;
@@ -372,7 +372,7 @@ TEST(MatchingDispatcher, StatsCountEvents) {
 TEST(MatchingDispatcher, CallbackExceptionIsCaptured) {
   using Dispatcher = MatchingDispatcher<1, Book>;
   std::atomic<int> calls{0};
-  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}}, [&](const Dispatcher::Event &) {
+  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}, .collectorCore = {}}, [&](const Dispatcher::Event &) {
     calls.fetch_add(1, std::memory_order_relaxed);
     throw std::runtime_error("boom");
   });
@@ -399,7 +399,7 @@ TEST(MatchingDispatcher, CancelEventCarriesIdAndSeq) {
   OrderIdx cancelledId{};
   bool hadSeq = false;
 
-  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}}, [&](const Dispatcher::Event &ev) {
+  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}, .collectorCore = {}}, [&](const Dispatcher::Event &ev) {
     if (ev.kind == Dispatcher::Event::Kind::Cancel) {
       cancelledId = ev.cancel.orderId;
       hadSeq = (ev.cancel.seq != 0);
@@ -432,7 +432,7 @@ TEST(MatchingDispatcher, RebaseCommandEmitsCancelAndRebase) {
   std::atomic<int> rebaseCount{0};
   std::atomic<int> cancelCount{0};
 
-  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}}, [&](const Dispatcher::Event &ev) {
+  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}, .collectorCore = {}}, [&](const Dispatcher::Event &ev) {
     if (ev.kind == Dispatcher::Event::Kind::Rebase) {
       rebaseCount.fetch_add(1, std::memory_order_relaxed);
     } else if (ev.kind == Dispatcher::Event::Kind::Cancel) {
@@ -458,7 +458,7 @@ TEST(MatchingDispatcher, RebaseCommandEmitsCancelAndRebase) {
 
 TEST(MatchingDispatcher, InvalidSymbolRejected) {
   using Dispatcher = MatchingDispatcher<1, Book>;
-  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}}, [](const Dispatcher::Event &) {});
+  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}, .collectorCore = {}}, [](const Dispatcher::Event &) {});
 
   Order buy{};
   buy.type = Engine::OrderType::Limit;
@@ -475,7 +475,7 @@ TEST(MatchingDispatcher, InvalidSymbolRejected) {
 
 TEST(MatchingDispatcher, StartStopAreIdempotent) {
   using Dispatcher = MatchingDispatcher<1, Book>;
-  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}}, [](const Dispatcher::Event &) {});
+  auto dispatcher = makeDispatcher<1, Book>({.workerCores = {}, .collectorCore = {}}, [](const Dispatcher::Event &) {});
 
   dispatcher.start();
   dispatcher.start(); // second start is a no-op

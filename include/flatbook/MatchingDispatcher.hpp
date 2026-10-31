@@ -6,20 +6,18 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
-#if defined(__linux__)
-#include <sched.h>
-#endif
-
 #include "MatchingEngine.hpp"
 #include "Parker.hpp"
 #include "SpinWait.hpp"
 #include "SpscQueue.hpp"
+#include "Threading.hpp"
 
 namespace flatbook {
 
@@ -30,8 +28,11 @@ struct MatchingConfig {
   /// Core to pin each worker to, one entry per worker. Empty = one worker, no
   /// pinning. Pinning is Linux-only and best-effort (ignored elsewhere).
   std::vector<uint32_t> workerCores;
-  /// Run workers with SCHED_FIFO real-time scheduling (Linux-only, best-effort;
-  /// requires privileges).
+  /// Core to pin the collector thread to (empty = no pinning). Linux-only and
+  /// best-effort.
+  std::optional<uint32_t> collectorCore;
+  /// Run workers and the collector on SCHED_FIFO real-time scheduling
+  /// (Linux-only, best-effort; requires privileges).
   bool realTime = false;
 };
 
@@ -158,8 +159,8 @@ public:
 
   /// Invoked from the collector thread, one event at a time, in per-symbol order.
   explicit MatchingDispatcher(MatchingConfig config, Callback onEvent = Callback{})
-      : workerCores_{std::move(config.workerCores)}, realTime_{config.realTime},
-        onEvent_{std::move(onEvent)} {
+      : workerCores_{std::move(config.workerCores)}, collectorCore_{config.collectorCore},
+        realTime_{config.realTime}, onEvent_{std::move(onEvent)} {
     workerOf_ = std::make_unique<uint32_t[]>(SymbolCount);
     books_ = std::make_unique<Engine[]>(SymbolCount);
     const size_t workerCount = workerCores_.empty() ? 1 : workerCores_.size();
@@ -188,15 +189,23 @@ public:
       w->stop.store(false, std::memory_order_seq_cst);
       w->thread = std::thread([this, wp = w.get()] {
         if (!workerCores_.empty()) {
-          pinToCore(workerCores_[wp->id]);
+          pinCurrentThread(workerCores_[wp->id]);
         }
         if (realTime_) {
-          setRealTime();
+          setCurrentThreadRealTime();
         }
         workerLoop(*wp);
       });
     }
-    collector_ = std::thread([this] { collectLoop(); });
+    collector_ = std::thread([this] {
+      if (collectorCore_) {
+        pinCurrentThread(*collectorCore_);
+      }
+      if (realTime_) {
+        setCurrentThreadRealTime();
+      }
+      collectLoop();
+    });
   }
 
   /// Stop and join all threads. Idempotent.
@@ -574,27 +583,9 @@ private:
     }
   }
 
-  static void pinToCore(uint32_t core) {
-#if defined(__linux__)
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(core, &set);
-    (void)sched_setaffinity(0, sizeof(set), &set);
-#else
-    (void)core;
-#endif
-  }
-
-  static void setRealTime() {
-#if defined(__linux__)
-    struct sched_param param {};
-    param.sched_priority = sched_get_priority_min(SCHED_FIFO);
-    (void)sched_setscheduler(0, SCHED_FIFO, &param);
-#endif
-  }
-
   // --- Configuration (immutable after construction) ---
   const std::vector<uint32_t> workerCores_;
+  const std::optional<uint32_t> collectorCore_;
   const bool realTime_;
 
   // --- Event sink (invoked from the collector thread) ---

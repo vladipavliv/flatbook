@@ -11,7 +11,7 @@ self-contained (verified by `./dev.sh headers`).
 | `Lobster.hpp` | `LobsterReplay`, `LobsterFeed`, `parseLobsterLine`, `parseOrderbookLine`, `replayLobsterFile` |
 | `LobsterValidator.hpp` | `validateLobster`, `matchesTopN` |
 | `Id.hpp`, `IdPool.hpp` | `RawId`, `GenerationalId`, `IdPool` |
-| `Bitmap.hpp`, `SpinWait.hpp`, `SpscQueue.hpp`, `Parker.hpp` | building blocks (also usable directly) |
+| `Bitmap.hpp`, `SpinWait.hpp`, `SpscQueue.hpp`, `Parker.hpp`, `Threading.hpp` | building blocks (also usable directly) |
 
 ## Internal vs public
 

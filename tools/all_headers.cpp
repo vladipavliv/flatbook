@@ -13,6 +13,7 @@
 #include <flatbook/Parker.hpp>
 #include <flatbook/SpinWait.hpp>
 #include <flatbook/SpscQueue.hpp>
+#include <flatbook/Threading.hpp>
 #include <flatbook/Types.hpp>
 
 int main() { return 0; }
