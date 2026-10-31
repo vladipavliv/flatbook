@@ -23,7 +23,7 @@ public:
 
   /// Advance one wait cycle, doing the appropriate pause/yield as a side
   /// effect. @return false when the budget is exhausted.
-  bool operator++() noexcept {
+  bool step() noexcept {
     if (cycles_ >= cap_) {
       return false;
     }

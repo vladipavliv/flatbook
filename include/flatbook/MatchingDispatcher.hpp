@@ -389,7 +389,7 @@ private:
     SpinWait waiter;
     while (!w.input.write(cmd)) {
       w.parker.unpark();
-      if (!++waiter) {
+      if (!waiter.step()) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     }
@@ -498,7 +498,7 @@ private:
     SpinWait waiter;
     while (!w.output.write(e)) {
       collectorParker_.unpark();
-      if (!++waiter) {
+      if (!waiter.step()) {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     }
@@ -524,7 +524,7 @@ private:
         collectorParker_.unpark();
         break;
       }
-      if (++waiter) {
+      if (waiter.step()) {
         continue; // still within the spin/yield budget
       }
       // Spin budget exhausted: park until there is work or a stop.
@@ -566,7 +566,7 @@ private:
         waiter.reset();
         continue;
       }
-      if (++waiter) {
+      if (waiter.step()) {
         continue; // still within the spin/yield budget
       }
       // Spin budget exhausted: park until some output has data or a stop.
