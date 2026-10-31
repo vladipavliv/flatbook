@@ -142,10 +142,11 @@ do_bench() {
     exit 1
   fi
 
-  # Default: FlatBook only. --refs adds the std::map and CppTrader baselines.
+  # Default: FlatBook only. --refs adds the std::map, unordered_map, CppTrader
+  # and Liquibook baselines.
   local filter="BM_Latency|BM_RestLatency|BM_Cancel|BM_OrderType"
   if [[ $refs -eq 1 ]]; then
-    filter="BM_Latency|BM_MapLatency|BM_RestLatency|BM_MapRestLatency|BM_CppTraderRestLatency|BM_Cancel|BM_MapCancel|BM_OrderType"
+    filter="BM_Latency|BM_MapLatency|BM_HashMapLatency|BM_RestLatency|BM_MapRestLatency|BM_CppTraderRestLatency|BM_LiquibookLatency|BM_LiquibookRestLatency|BM_Cancel|BM_MapCancel|BM_OrderType"
   fi
 
   echo "== benchmarks =="

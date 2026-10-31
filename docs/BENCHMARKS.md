@@ -136,6 +136,12 @@ Writes `docs/add_vs_price_levels.png`, `docs/rest_vs_price_levels.png`,
 - **Synthetic flow.** Prices are drawn from a uniform or clustered distribution,
   not a real day's LOBSTER/ITCH stream; the adversarial wide-range pattern is
   intentionally hard for flat arrays, the clustered one intentionally easy.
+- **"Flat latency" is about capacity, not depth.** The sweep varies the
+  *configured* capacity (32K-524K orders), but the working set stays small: the
+  warm workload crosses ~37-45% immediately and resets the book periodically, so
+  the actual resting depth is far below capacity. "Capacity has no effect on
+  percentiles" is therefore true by construction; a genuinely deep book
+  (hundreds of thousands of live orders) is a separate, not-yet-run scenario.
 - **Single thread, single core.** The latency numbers are one thread on one
   core; they say nothing about multi-symbol throughput or contention.
 - **Frequency and boost.** `./dev.sh tail` warns when the governor is not
@@ -148,7 +154,11 @@ Writes `docs/add_vs_price_levels.png`, `docs/rest_vs_price_levels.png`,
 - **Baselines are containers, not full matchers.** `std::map` and CppTrader
   baselines maintain levels but do not match (no crossing, no order types, no
   STP); the comparison is on the resting-only path, which is where their data
-  structures differ. See [COMPARISON.md](COMPARISON.md) for real matchers.
+  structures differ. The `std::map` baseline uses a `std::deque` FIFO per level
+  (a block allocation per level); `std::unordered_map` (HashMapBook) is a fairer
+  hash-based reference, and FlatBook beats both for the same reason - the flat
+  array + bitmap avoids per-level allocation and the sorted-price index. See
+  [COMPARISON.md](COMPARISON.md) for real matchers.
 - **CI is noisy.** Regenerate on a quiet, dedicated machine before publishing.
 - **Large L3 cache.** The test CPU has 96 MB of L3 (3D V-Cache), so most of the
   configurations here are largely cache-resident. On CPUs with a smaller L3 the

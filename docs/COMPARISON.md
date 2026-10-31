@@ -71,6 +71,24 @@ The `std::map` worst case is also much heavier-tailed: its per-pass maximum is
 The `max` figure here is the median of the per-pass maxima, not the largest
 value ever observed.
 
+## std::unordered_map baseline
+
+Because the `std::map` baseline above allocates a `std::deque` per price level
+(a ~512-byte block per level), part of its measured cost is the deque, not the
+tree. A `std::unordered_map` book with a `std::set` of occupied prices for
+O(log n) best-bid/best-ask (`BM_HashMapLatency`) isolates that: it is the same
+per-level deque, but with an O(1)-average level lookup. Median of 10 runs:
+
+| Price levels | FlatBook | std::map | std::unordered_map |
+|---|---|---|---|
+| 1,024 | 28.6 ns | 72.7 ns | 83.3 ns |
+| 16,384 | 28.2 ns | 91.0 ns | 103 ns |
+| 262,144 | 28.4 ns | 110 ns | 141 ns |
+
+The hash map is *not* faster than the tree on this workload: the win is the flat
+array + hierarchical bitmap (no per-level allocation, no sorted-price index),
+not "tree vs hash".
+
 ## CppTrader baseline
 
 FlatBook is also measured against [CppTrader](https://github.com/chronoxor/CppTrader)'s
@@ -97,8 +115,8 @@ it degrades from 283 ns to 11.4 µs.
 ## Real matchers (Liquibook)
 
 Liquibook (a full callback-based matching engine, header-only, BSD-style
-license) is benchmarked on the same resting-only `addLimit` stream, median of 3
-runs:
+license) is benchmarked on the same resting-only `addLimit` stream, median of 10
+runs (reproducible via `./dev.sh bench --refs`):
 
 | Price levels | FlatBook | std::map | Liquibook |
 |---|---|---|---|

@@ -36,6 +36,9 @@ MAP_RE = re.compile(r"BM_MapLatency<(\d+), PriceDistribution::(\w+)>")
 REST_RE = re.compile(r"BM_RestLatency<(\d+), (\d+), PriceDistribution::(\w+)>")
 MAP_REST_RE = re.compile(r"BM_MapRestLatency<(\d+), PriceDistribution::(\w+)>")
 CPPTRADER_REST_RE = re.compile(r"BM_CppTraderRestLatency<(\d+), PriceDistribution::(\w+)>")
+HASHMAP_RE = re.compile(r"BM_HashMapLatency<(\d+), PriceDistribution::(\w+)>")
+LIQUIBOOK_LATENCY_RE = re.compile(r"BM_LiquibookLatency<(\d+), PriceDistribution::(\w+)>")
+LIQUIBOOK_REST_RE = re.compile(r"BM_LiquibookRestLatency<(\d+), PriceDistribution::(\w+)>")
 CANCEL_RE = re.compile(r"BM_Cancel<(\d+), (\d+), PriceDistribution::(\w+)>/(\d+)")
 MAP_CANCEL_RE = re.compile(r"BM_MapCancel<(\d+), PriceDistribution::(\w+)>/(\d+)")
 ORDER_TYPE_RE = re.compile(
@@ -49,6 +52,10 @@ STYLE = {
     ("FlatBook", "Clustered"): ("#e67e22", "s", "-"),
     ("std::map", "Uniform"): ("#2980b9", "o", "--"),
     ("std::map", "Clustered"): ("#16a085", "s", "--"),
+    ("std::unordered_map", "Uniform"): ("#27ae60", "^", "--"),
+    ("std::unordered_map", "Clustered"): ("#2ecc71", "v", "--"),
+    ("Liquibook", "Uniform"): ("#d35400", "D", "-"),
+    ("Liquibook", "Clustered"): ("#f39c12", "P", "-"),
     ("CppTrader", "Uniform"): ("#8e44ad", "^", "-"),
     ("CppTrader", "Clustered"): ("#2c3e50", "v", "-"),
 }
@@ -87,6 +94,15 @@ def collect(benchmarks):
         m = CPPTRADER_REST_RE.match(name)
         if m:
             rows.append(("rest", "CppTrader", int(m.group(1)), m.group(2), ns)); continue
+        m = HASHMAP_RE.match(name)
+        if m:
+            rows.append(("add", "std::unordered_map", int(m.group(1)), m.group(2), ns)); continue
+        m = LIQUIBOOK_LATENCY_RE.match(name)
+        if m:
+            rows.append(("add", "Liquibook", int(m.group(1)), m.group(2), ns)); continue
+        m = LIQUIBOOK_REST_RE.match(name)
+        if m:
+            rows.append(("rest", "Liquibook", int(m.group(1)), m.group(2), ns)); continue
         m = CANCEL_RE.match(name)
         if m and int(m.group(4)) == CANCEL_RATE:
             rows.append(("cancel", "FlatBook", int(m.group(2)), m.group(3), ns)); continue
@@ -161,20 +177,21 @@ def main():
     benchmarks = load(path)
     rows = collect(benchmarks)
 
-    has_map = any(r[1] == "std::map" for r in rows)
-    suffix = " vs std::map" if has_map else ""
+    has_refs = any(r[1] != "FlatBook" for r in rows)
+    suffix = " vs baselines" if has_refs else ""
 
     plot_workload(rows, "add", f"addOrder latency vs price range (FlatBook{suffix})",
                   out_dir / "add_vs_price_levels.png")
     plot_workload(rows, "rest", f"Resting-only add vs price range (FlatBook{suffix})",
-                  out_dir / "rest_vs_price_levels.png", kinds={"FlatBook", "std::map"})
+                  out_dir / "rest_vs_price_levels.png", kinds={"FlatBook", "std::map", "Liquibook"})
     plot_workload(rows, "cancel", f"add/cancel mix ({CANCEL_RATE}% cancel) vs price range",
                   out_dir / "cancel_vs_price_levels.png")
 
     has_cpptrader = any(r[0] == "rest" and r[1] == "CppTrader" for r in rows)
     if has_cpptrader:
         plot_workload(rows, "rest", "Resting-only add vs price range (CppTrader optimized baseline)",
-                      out_dir / "cpptrader_vs_price_levels.png", log_y=True)
+                      out_dir / "cpptrader_vs_price_levels.png", log_y=True,
+                      kinds={"FlatBook", "CppTrader"})
 
     names = ["add_vs_price_levels.png", "rest_vs_price_levels.png", "cancel_vs_price_levels.png"]
     if has_cpptrader:
