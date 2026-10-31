@@ -182,9 +182,9 @@ an asynchronous write-ahead log.
 ## Performance
 
 Benchmarked across different configurations and compared with `std::map`,
-CppTrader and Liquibook on the same order streams (apples-to-apples). Full
-methodology, per-workload tables and caveats:
-[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+CppTrader and Liquibook on the same order streams (apples-to-apples). FlatBook's
+numbers and methodology: [docs/BENCHMARKS.md](docs/BENCHMARKS.md); the reference
+comparison: [docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Install / use as a dependency
 
@@ -237,7 +237,8 @@ Handy one-liners (see `dev.sh`):
 - [API.md](docs/API.md) - the public API surface and the internal/public boundary.
 - [SEMANTICS.md](docs/SEMANTICS.md) - edge-case behavior per order type / TIF, tied to tests.
 - [DESIGN.md](docs/DESIGN.md) - data structures, order ids, determinism, safety model.
-- [BENCHMARKS.md](docs/BENCHMARKS.md) - methodology, baselines, machine config.
+- [BENCHMARKS.md](docs/BENCHMARKS.md) - FlatBook's own latency numbers and methodology.
+- [COMPARISON.md](docs/COMPARISON.md) - FlatBook vs std::map / CppTrader / Liquibook.
 - [VALIDATION.md](docs/VALIDATION.md) - LOBSTER data format and how to validate the book.
 
 ## Versioning
