@@ -177,14 +177,20 @@ do_bench() {
 
 do_tail() {
   local bin="$BUILD_DIR/benchmarks/flatbook_tail"
-  if [[ ! -x "$bin" ]]; then
-    echo "== configure =="
-    cmake -S "$ROOT" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
-    echo "== build =="
-    cmake --build "$BUILD_DIR" --target flatbook_tail -j
+  local core="${1:-3}"
+  local passes="${2:-5}"
+
+  if (( core >= $(nproc) )); then
+    echo "core $core does not exist (nproc=$(nproc)), falling back to 0"
+    core=0
   fi
-  echo "== tail =="
-  "$bin"
+
+  echo "== configure =="
+  cmake -S "$ROOT" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
+  echo "== build =="
+  cmake --build "$BUILD_DIR" --target flatbook_tail -j
+  echo "== tail (core $core, $passes passes) =="
+  "$bin" "$core" "$passes"
 }
 
 cmd="${1:-help}"

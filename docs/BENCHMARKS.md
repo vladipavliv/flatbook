@@ -6,14 +6,10 @@ Measured with Google Benchmark, GCC 15, `-O3` (add `-DFLATBOOK_NATIVE=ON` for
 ## Test Environment
 
 OS: Ubuntu 26.04.1 LTS  
-CPU: AMD Ryzen 7 9800X3D 8-Core Processor  
+CPU: AMD Ryzen 7 9800X3D 8-Core Processor (8 cores / 16 threads, 96 MB L3, 1 MB L2 per core)  
 RAM: 64 GB @ 5200 MT/s  
-
-> **Reproducibility note:** the numbers below are single-run medians or
-> medians-of-10, illustrative rather than a rigorous claim. They were measured
-> on the machine above; for anything you publish, record the CPU model, OS, and
-> fixed CPU frequency (`performance` governor), and regenerate on a quiet
-> machine - CI runners are noisy and have no stable frequency.
+Governor: performance, benchmark pinned to core 3  
+Boost: TODO (on/off)
 
 <!-- BENCHMARKS:REPORT -->
 <!-- Regenerate with: ./dev.sh bench --report -->
@@ -33,15 +29,17 @@ The benchmark sweeps three book configurations and two price-generation modes
 
 ## Add latency
 
+Median of 10 runs; 37% (Uniform) and 45% (Clustered) of the orders cross the book.
+
 | BookSize / PriceLevels | Uniform | Clustered |
 |---|---|---|
-| 32,768 / 1,024 | 27.0 ns | 20.2 ns |
-| 131,072 / 16,384 | 27.2 ns | 18.9 ns |
-| 524,288 / 262,144 | 27.7 ns | 19.2 ns |
+| 32,768 / 1,024 | 28.6 ns | 21.7 ns |
+| 131,072 / 16,384 | 28.2 ns | 20.0 ns |
+| 524,288 / 262,144 | 28.4 ns | 19.7 ns |
 
 **Why it scales.** Best-bid/best-ask discovery is O(1) via the multi-level
 bitmap, and insert/remove are O(1), so latency is flat across the full 256x
-price range (27.0 → 27.7 ns uniform). The configured `levels_` array grows with
+price range (28.6 → 28.4 ns uniform). The configured `levels_` array grows with
 `PriceLevels`, but the working set touched per operation stays small.
 
 ## std::map baseline
@@ -52,28 +50,29 @@ uniform pattern:
 
 | Price levels | FlatBook | std::map |
 |---|---|---|
-| 1,024 | 27.0 ns | 73.3 ns |
-| 16,384 | 27.2 ns | 91.2 ns |
-| 262,144 | 27.7 ns | 109.2 ns |
+| 1,024 | 28.6 ns | 72.7 ns |
+| 16,384 | 28.2 ns | 91.0 ns |
+| 262,144 | 28.4 ns | 110 ns |
 
 The map grows with the price range (every level lookup chases a tree node, every
 insert allocates); FlatBook stays flat because its price discovery is a constant
 number of bitmap levels and it allocates nothing.
 
-The add-only, 50/50 crossing mix above is the *best case* for `std::map` - half
-the orders match and never insert. The per-workload picture (uniform, 1,024
+The mixed-crossing workload above is the *best case* for `std::map`: roughly 40%
+of the orders match and never insert. The per-workload picture (uniform, 1,024
 levels):
 
 | Workload | FlatBook | std::map | ratio |
 |---|---|---|---|
-| add, mixed crossing (`BM_Latency`/`BM_MapLatency`) | 27.0 ns | 73.3 ns | 2.7× |
-| add, resting-only (`BM_RestLatency`/`BM_MapRestLatency`) | 7.7 ns | 72.4 ns | 9.4× |
-| add/cancel mix, 25% cancel (`BM_Cancel`/`BM_MapCancel`) | 25.7 ns | 73.0 ns | 2.8× |
+| add, mixed crossing (`BM_Latency`/`BM_MapLatency`) | 28.6 ns | 72.7 ns | 2.5× |
+| add, resting-only (`BM_RestLatency`/`BM_MapRestLatency`) | 9.4 ns | 71.1 ns | 7.6× |
+| add/cancel mix, 25% cancel (`BM_Cancel`/`BM_MapCancel`) | 25.4 ns | 72.9 ns | 2.9× |
 
-The resting gap widens with `PriceLevels` (7.7 → 12.3 ns FlatBook vs 72 → 278 ns
-map at 262,144 levels): every rest in a map is a tree-node `new`, FlatBook
-writes one flat-array slot. The map's cancel is an O(1) index lookup plus an
-O(k) scan of the level queue plus an erase; FlatBook cancels by id in O(1).
+The resting gap widens with `PriceLevels` (from 1,024 to 262,144 levels FlatBook
+goes 9.4 → 13.9 ns, `std::map` 71 → 257 ns): every rest in a map is a tree-node
+`new`, FlatBook writes one flat-array slot. The map's cancel is an O(1) index
+lookup plus an O(k) scan of the level queue plus an erase; FlatBook cancels by
+id in O(1).
 
 ## CppTrader baseline
 
@@ -85,9 +84,9 @@ comparison is on the resting-only path only. Median of 10 runs:
 
 | Price levels | FlatBook | std::map | CppTrader |
 |---|---|---|---|
-| 1,024 | 8.5 ns | 69.9 ns | 283.4 ns |
-| 16,384 | 9.6 ns | 131.1 ns | 4,244 ns |
-| 262,144 | 13.4 ns | 270.5 ns | 11,359 ns |
+| 1,024 | 9.4 ns | 71.1 ns | 283 ns |
+| 16,384 | 10.2 ns | 132 ns | 4,244 ns |
+| 262,144 | 13.9 ns | 257 ns | 11,376 ns |
 
 CppTrader stores price levels in a `std::vector` sorted by price and finds a
 level by scanning linearly back from the best price, and inserting a *new* level
@@ -100,24 +99,41 @@ it degrades from 283 ns to 11.4 µs.
 
 ## Tail latency
 
-Means and medians hide the worst case, so `./dev.sh tail` measures per-operation
-latency percentiles (TSC-based, 100k samples per row, FlatBook `BookSize`
-262,144):
+Means and medians hide the worst case, so `./dev.sh tail [core] [passes]`
+measures per-operation latency percentiles with a serialized TSC
+(`rdtscp` + `lfence`): 200,000 samples per pass, median of 5 passes, every
+combination of book capacity (32,768 / 262,144 / 524,288 orders) and price range
+(1,024 / 16,384 / 262,144 levels). Percentiles are in nanoseconds.
 
-| Workload | p50 | p99.9 |
-|---|---|---|
-| FlatBook add (mixed crossing) | 10-20 ns | 70-130 ns |
-| FlatBook rest | ~10 ns | 20-40 ns |
-| std::map rest | 40-210 ns | 120 ns - 2 µs |
-| CppTrader rest (uniform) | 0.4-13 µs | 0.9-35 µs |
+FlatBook, ranges across all book capacities and price ranges:
 
-FlatBook's tail stays in tens-to-hundreds of nanoseconds; the reference
-containers blow into microseconds on wide price ranges. The `max` column (not
-shown) is a rare 1-in-100k scheduler/cache outlier, not the book itself - clean
-tails need core pinning and fixed CPU frequency, so treat these as indicative,
-like the averages above. Note that the TSC timer overhead (tens of cycles) is
-comparable to the ~10 ns p50, so the smallest numbers are near the measurement
-floor.
+| Workload | p50 | p90 | p99 | p99.9 |
+|---|---|---|---|---|
+| add, Uniform (mixed crossing) | 20-30 | 40-50 | 80-90 | 110-130 |
+| add, Clustered | 20 | 30 | 50-60 | 80 |
+| rest, Uniform | 10-20 | 10-20 | 10-30 | 20-40 |
+| rest, Clustered | 10 | 10 | 10 | 20 |
+
+Book capacity has no visible effect: for the same price range and distribution
+the percentiles are identical at 32K, 262K and 524K orders.
+
+`std::map` rest, at 262,144 orders:
+
+| Workload | p50 | p90 | p99 | p99.9 |
+|---|---|---|---|---|
+| rest, Uniform | 70-210 | 90-260 | 100-300 | 130-340 |
+| rest, Clustered | 40 | 50 | 80 | 130-140 |
+
+The `std::map` worst case is also much heavier-tailed: its per-pass maximum is
+43-177 µs (allocator and tree-node cache misses) against 50-280 ns for FlatBook.
+The `max` figure here is the median of the per-pass maxima, not the largest
+value ever observed.
+
+**Timer resolution.** On the test CPU (Zen 5) the TSC advances in steps of 47
+cycles, i.e. one tick every 10 ns, so every per-operation value is a multiple
+of ~10 ns. For `add` (50-130 ns) this is a small error; for `rest` (about 10 ns)
+read the numbers as upper bounds. Use the Google Benchmark averages above for
+the precise rest cost (7.4-13.9 ns), which are not affected by the timer step.
 
 ## Running the benchmarks
 
@@ -127,6 +143,13 @@ cmake --build build -j
 ./build/benchmarks/flatbook_bench                       # everything
 ./build/benchmarks/flatbook_bench --benchmark_filter=BM_Latency
 ./build/benchmarks/flatbook_bench --benchmark_filter=BM_OrderType
+```
+
+Tail-latency percentiles (pin to an idle core; default core 3, 5 passes):
+
+```bash
+./dev.sh tail            # core 3, 5 passes
+./dev.sh tail 5 10       # core 5, 10 passes
 ```
 
 The order-type sweep measures `addOrder` per type (`LimitGTC`, `Market`,
@@ -145,25 +168,26 @@ Each chart plots latency vs the configured price range (`std::map` dashed,
 FlatBook solid), for both uniform (adversarial wide-range) and clustered
 (near-touch) patterns.
 
-**1. Add (mixed 50/50 crossing).** `std::map`'s best case: half the orders match
-and never insert, so its O(log n) insert is amortized away.
+**1. Add (mixed crossing, 37-45% of orders fill).** `std::map`'s best case:
+roughly 40% of the orders match and never insert, so its O(log n) insert is
+amortized away.
 
 ![addOrder latency vs price range](add_vs_price_levels.png)
 
-FlatBook is flat (~27 ns) across the full 256× range; `std::map` grows 73 → 109 ns.
+FlatBook is flat (~28 ns) across the full 256× range; `std::map` grows 73 → 110 ns.
 
 **2. Resting-only (every order rests).** Pure allocation: every rest is a
 tree-node `new` in `std::map`, one flat-array write in FlatBook.
 
 ![resting-only add vs price range](rest_vs_price_levels.png)
 
-FlatBook ~8-13 ns; `std::map` grows 72 → 278 ns (9-22×).
+FlatBook ~7-14 ns; `std::map` grows 71 → 257 ns (8-18×).
 
 **3. Add/cancel mix (25% cancel).**
 
 ![add/cancel mix vs price range](cancel_vs_price_levels.png)
 
-FlatBook ~26 ns vs `std::map` ~73 ns at 1,024 levels.
+FlatBook ~25 ns vs `std::map` ~73 ns at 1,024 levels.
 
 **4. Per order type (FlatBook).** FOK on random flow mostly measures the cheap
 reject path.
@@ -204,17 +228,24 @@ Writes `docs/add_vs_price_levels.png`, `docs/rest_vs_price_levels.png`,
   intentionally hard for flat arrays, the clustered one intentionally easy.
 - **Single thread, single core.** The latency numbers are one thread on one
   core; they say nothing about multi-symbol throughput or contention.
-- **No frequency lock guarantee.** `./dev.sh tail` warns when the governor is
-  not `performance` or turbo is enabled, but it cannot force a fixed frequency
-  without root.
-- **TSC floor.** Even after subtracting the empty-measurement baseline, the
-  ~10 ns p50 for a pure rest is within a few nanoseconds of the timer itself;
-  treat differences below ~10 ns as noise.
+- **Frequency and boost.** `./dev.sh tail` warns when the governor is not
+  `performance` or Intel turbo is enabled; it does not detect AMD boost, so check
+  it manually (see the boost setting in Test Environment).
+- **Timer resolution.** The TSC on the test CPU ticks every 10 ns (47 cycles), so
+  per-operation percentiles are multiples of 10 ns and values around 10 ns
+  (rest) are upper bounds. Treat differences below ~10 ns in the tail tables as
+  noise; use the Google Benchmark averages for the exact rest cost.
 - **Baselines are containers, not full matchers.** `std::map` and CppTrader
   baselines maintain levels but do not match (no crossing, no order types, no
   STP); the comparison is on the resting-only path, which is where their data
   structures differ. See the next section for real matchers.
 - **CI is noisy.** Regenerate on a quiet, dedicated machine before publishing.
+- **Large L3 cache.** The test CPU has 96 MB of L3 (3D V-Cache), so most of the
+  configurations here are largely cache-resident. On CPUs with a smaller L3 the
+  wide-range Uniform cases (262,144 levels) will likely be slower; the Clustered
+  cases touch a small working set and should be less affected.
+- **Single machine.** All numbers come from one workstation; results on other
+  CPUs and under virtualization will differ.
 
 ## Real matchers
 
@@ -247,5 +278,3 @@ Liquibook is ~190 ns and roughly flat across the price range (its internal
 `std::multimap` of order trackers grows log-n), while FlatBook stays ~8-14 ns
 via direct indexing. This is the honest matcher-to-matcher comparison; the
 CppTrader / `std::map` rows above show only the container-level difference.
-
-

@@ -28,17 +28,16 @@
 
 #include "BenchCommon.hpp"
 #include "flatbook/MatchingEngine.hpp"
-#include "reference/CppTraderBook.hpp"
 #include "reference/MapBook.hpp"
 
 namespace flatbook {
 
-// Order capacity for FlatBook in this harness. Large enough that the book never
-// fills during warmup + one batch, so every timed op is a real rest/match.
-constexpr std::uint32_t kBookSize = 262144;
+// Number of full measurement passes per row; each percentile is reported as the
+// median across passes (robust against one noisy pass). argv[2] overrides.
+std::size_t gRepeats = 5;
 
-constexpr std::size_t kSamples = 100000;
-constexpr std::size_t kBatch = 20000; // reset the book after this many timed ops
+constexpr std::size_t kSamples = 200000; // p99.9 = 200 tail samples
+constexpr std::size_t kBatch = 20000;    // reset the book after this many timed ops
 
 double nsPerCycle = 1.0;
 std::uint64_t baselineCycles = 0;
@@ -117,7 +116,8 @@ void warnIfNotPerformance() {
     return true;
   };
   std::string gov;
-  if (readTrimmed("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", gov) && gov != "performance") {
+  if (readTrimmed("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", gov) &&
+      gov != "performance") {
     std::printf("# WARNING: CPU governor is '%s' (not 'performance'); tail numbers are noisy\n",
                 gov.c_str());
   }
@@ -149,7 +149,8 @@ Stats toStats(std::vector<std::uint64_t> &buf, std::size_t samples) {
 }
 
 template <typename Book, typename Step>
-Stats measureTail(const std::vector<GenOrder> &orders, Step &&step, std::vector<std::uint64_t> &buf) {
+Stats measureTail(const std::vector<GenOrder> &orders, Step &&step,
+                  std::vector<std::uint64_t> &buf) {
   auto book = std::make_unique<Book>();
   std::size_t idx = 0;
 
@@ -179,30 +180,62 @@ Stats measureTail(const std::vector<GenOrder> &orders, Step &&step, std::vector<
   return toStats(buf, kSamples);
 }
 
+template <typename Book, typename Step>
+Stats measureMedian(const std::vector<GenOrder> &orders, Step &&step,
+                    std::vector<std::uint64_t> &buf) {
+  std::vector<Stats> runs;
+  runs.reserve(gRepeats);
+  for (std::size_t r = 0; r < gRepeats; ++r) {
+    runs.push_back(measureTail<Book>(orders, step, buf));
+  }
+  const auto med = [&](double Stats::*field) {
+    std::vector<double> v;
+    for (const auto &s : runs) {
+      v.push_back(s.*field);
+    }
+    std::sort(v.begin(), v.end());
+    return v[v.size() / 2];
+  };
+  return {med(&Stats::p50), med(&Stats::p90), med(&Stats::p99), med(&Stats::p999),
+          med(&Stats::max)};
+}
+
 void printHeader() {
   std::printf("%-46s %9s %9s %9s %10s %10s\n", "workload", "p50", "p90", "p99", "p99.9", "max");
 }
 
 void printRow(const std::string &label, const Stats &s) {
-  std::printf("%-46s %9.1f %9.1f %9.1f %10.1f %10.1f\n", label.c_str(), s.p50, s.p90, s.p99,
-              s.p999, s.max);
+  std::printf("%-46s %9.1f %9.1f %9.1f %10.1f %10.1f\n", label.c_str(), s.p50, s.p90, s.p99, s.p999,
+              s.max);
+}
+
+template <PriceDistribution Dist, std::uint32_t PriceLevels, std::uint32_t BookSize, bool WithMap>
+void runAll(std::vector<std::uint64_t> &buf) {
+  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  using Engine = MatchingEngine<OrderBook<BookSize, PriceLevels>>;
+
+  const std::string base =
+      "N=" + std::to_string(BookSize) + " L=" + std::to_string(PriceLevels) + " " + distName(Dist);
+
+  printRow(
+      "add   FlatBook   " + base,
+      measureMedian<Engine>(orders, [](auto &e, const GenOrder &o) { (void)addLimit(e, o); }, buf));
+  printRow(
+      "rest  FlatBook   " + base,
+      measureMedian<Engine>(orders, [](auto &e, const GenOrder &o) { (void)addRest(e, o); }, buf));
+  if constexpr (WithMap) {
+    printRow("rest  std::map   " + base,
+             measureMedian<MapBook>(
+                 orders, [](auto &b, const GenOrder &o) { (void)b.addLimit(o.price, o.qty, true); },
+                 buf));
+  }
 }
 
 template <PriceDistribution Dist, std::uint32_t PriceLevels>
-void runAll(std::vector<std::uint64_t> &buf) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
-  using Engine = MatchingEngine<OrderBook<kBookSize, PriceLevels>>;
-
-  std::string base = std::to_string(PriceLevels) + " " + distName(Dist);
-
-  printRow("add   FlatBook   " + base,
-           measureTail<Engine>(orders, [](auto &e, const GenOrder &o) { (void)addLimit(e, o); }, buf));
-  printRow("rest  FlatBook   " + base,
-           measureTail<Engine>(orders, [](auto &e, const GenOrder &o) { (void)addRest(e, o); }, buf));
-  printRow("rest  std::map   " + base,
-           measureTail<MapBook>(orders, [](auto &b, const GenOrder &o) { (void)b.addLimit(o.price, o.qty, true); }, buf));
-  printRow("rest  CppTrader  " + base,
-           measureTail<CppTraderBook>(orders, [](auto &b, const GenOrder &o) { (void)b.addLimit(o.price, o.qty, true); }, buf));
+void runBookSizes(std::vector<std::uint64_t> &buf) {
+  runAll<Dist, PriceLevels, 32768, false>(buf);
+  runAll<Dist, PriceLevels, 262144, true>(buf); // std::map reference at the middle size only
+  runAll<Dist, PriceLevels, 524288, false>(buf);
 }
 
 } // namespace flatbook
@@ -220,19 +253,26 @@ int main(int argc, char **argv) {
   baselineCycles = calibrateBaseline();
   warnIfNotPerformance();
 
-  std::printf("Tail latency (ns), TSC (rdtscp+lfence), %zu samples/row; FlatBook BookSize=%u\n",
-              kSamples, kBookSize);
+  if (argc >= 3) {
+    gRepeats = static_cast<std::size_t>(std::atoi(argv[2]));
+    if (gRepeats == 0) {
+      gRepeats = 1;
+    }
+  }
+  std::printf("Tail latency (ns), TSC (rdtscp+lfence), %zu samples/pass, median of %zu passes\n",
+              kSamples, gRepeats);
+  std::printf("N = book capacity (orders), L = price levels\n");
   std::printf("core=%u timer-baseline=%llu cycles (~%.1f ns), ns/cycle=%.4f\n\n", core,
               static_cast<unsigned long long>(baselineCycles),
               static_cast<double>(baselineCycles) * nsPerCycle, nsPerCycle);
   printHeader();
 
   std::vector<std::uint64_t> buf(kSamples);
-  runAll<PriceDistribution::Uniform, 1024>(buf);
-  runAll<PriceDistribution::Clustered, 1024>(buf);
-  runAll<PriceDistribution::Uniform, 16384>(buf);
-  runAll<PriceDistribution::Clustered, 16384>(buf);
-  runAll<PriceDistribution::Uniform, 262144>(buf);
-  runAll<PriceDistribution::Clustered, 262144>(buf);
+  runBookSizes<PriceDistribution::Uniform, 1024>(buf);
+  runBookSizes<PriceDistribution::Clustered, 1024>(buf);
+  runBookSizes<PriceDistribution::Uniform, 16384>(buf);
+  runBookSizes<PriceDistribution::Clustered, 16384>(buf);
+  runBookSizes<PriceDistribution::Uniform, 262144>(buf);
+  runBookSizes<PriceDistribution::Clustered, 262144>(buf);
   return 0;
 }

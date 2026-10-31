@@ -8,15 +8,29 @@
   <a href="https://github.com/vladipavliv/flatbook/releases"><img src="https://img.shields.io/github/v/release/vladipavliv/flatbook?style=flat-square" alt="Release"></a>
 </p>
 
-A header-only, allocation-free order book and matching engine for C++20, built
-around direct-indexed arrays and a hierarchical bitmap.
+**A header-only, deterministic order book and matching engine for C++20.**
+Direct-indexed price levels, a hierarchical bitmap for best bid/ask and a
+fixed-capacity order pool mean the hot path never allocates, locks or throws, so
+latency stays flat as the book grows. Order ids can carry a generation, so a
+stale id never cancels or matches the wrong order, and the same input always
+produces the same fills and book state.
 
-On top of the core, FlatBook ships a sharded multi-symbol dispatcher, a
-deterministic journal with snapshot/restore and disk persistence for replay and
-recovery, LOBSTER market-data replay with a book validator, and Python bindings
-with a numpy batch API. Benchmarked against `std::map`, CppTrader and Liquibook.
+Around the core: self-trade prevention, post-only / IOC / FOK / cancel-replace,
+a sharded multi-symbol dispatcher, LOBSTER replay with a book validator, and
+Python bindings with a numpy batch API. Tested on GCC, Clang and MSVC; CI also
+runs ASan + UBSan, TSan, clang-tidy and libFuzzer.
 
-Tested with GCC / Clang (libstdc++ & libc++) / MSVC; CI runs ASan+UBSan, TSan, clang-tidy, libFuzzer and coverage.
+| Operation (per call)                | p50      | p90      | p99      | p99.9     |
+|:------------------------------------|---------:|---------:|---------:|----------:|
+| **Add** (mixed flow, 37–45% fills)  | 20–30 ns | 30–50 ns | 50–90 ns | 80–130 ns |
+| **Rest** (order lands in the book)  | 10–20 ns | 10–20 ns | 10–30 ns | 20–40 ns  |
+
+<sub>32K–524K orders, 1K–262K price levels, uniform and clustered prices; AMD
+Ryzen 7 9800X3D (96 MB L3), pinned core, 5 passes × 200,000 samples. The timer
+ticks every 10 ns, so single-digit rest values are upper bounds. On a
+resting-only stream FlatBook is 13–22× faster than
+[Liquibook](https://github.com/objectcomputing/liquibook) and 8–19× faster than
+a `std::map` book. Methodology and caveats: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).</sub>
 
 ## Contents
 
@@ -60,7 +74,7 @@ case Engine::Result::Rejected:  break; // nothing executed; see r.reason
 > Large books store their arrays inline (hundreds of KB) - allocate them on the
 > heap (or `static`), not the stack.
 
-Run the examples in [`examples/`](examples/) (`example_basic`, `example_dispatcher`, `example_persistence`, `example_lobster_replay`).
+Run the examples in [`examples/`](examples/) (`example_basic`, `example_dispatcher`, `example_lobster_replay`).
 
 ## Feature matrix
 
@@ -71,12 +85,11 @@ Run the examples in [`examples/`](examples/) (`example_basic`, `example_dispatch
 | Self-trade prevention (participant keys, cancel-newest) | ✅ |
 | Cancel / modify (cancel-replace) | ✅ |
 | Price window + rebase | ✅ (optional, see below) |
-| Deterministic sequence numbers + journal + snapshot/restore | ✅ |
-| Disk persistence (checkpoint + journal tail) | ✅ |
+| Deterministic sequence numbers | ✅ |
 | Multi-symbol dispatcher (lock-free sharding) | ✅ |
 | LOBSTER market-data replay + book validator | ✅ (benchmark / validation tool) |
 | Python bindings (nanobind, numpy batch API) | ✅ |
-| Fuzzing (libFuzzer: engine, persistence, parser) | ✅ |
+| Fuzzing (libFuzzer: engine, parser) | ✅ |
 | Stop / iceberg / hidden orders | ❌ |
 | Pro-rata or multi-priority matching | ❌ (price-time only) |
 | Amend that keeps time priority | ❌ (`modify` loses priority) |
@@ -124,9 +137,8 @@ using GenBook = OrderBook<1 << 15, 1 << 10, GenerationalId<1 << 15, 24>>;
 The matching engine is fully **deterministic**: a monotonic `Sequence` is stamped
 on every result and fill, ids are recycled LIFO, and there is no hashing,
 randomness or clock. Replaying the same operations reproduces the same ids,
-fills and state - the foundation for the journal, snapshot/restore and
-persistence. See [docs/DESIGN.md](docs/DESIGN.md) for the full design and the
-safety model.
+fills and state - the foundation for replay and state comparison. See
+[docs/DESIGN.md](docs/DESIGN.md) for the full design and the safety model.
 
 ## Architecture
 
@@ -155,18 +167,11 @@ Versioning). The core is single-threaded and deterministic: suitable for
 backtesting, simulation and as a low-latency prototype. It is **not** a turnkey
 exchange - no sessions/auctions/risk checks, one price-time priority, no
 market-data distribution. Battle hardening (audit, real-feed replay validation,
-external users) is the roadmap, not a TODO.
+external users) is the roadmap, not a TODO. Persistence is not part of this
+release: the journal and disk checkpointing were removed and will be replaced by
+an asynchronous write-ahead log.
 
 ## Performance
-
-Google Benchmark, `-O3` (add `-DFLATBOOK_NATIVE=ON` for `-march=native`), `CMAKE_BUILD_TYPE=Release`.
-Add-latency (median) at a glance:
-
-| BookSize / PriceLevels | Uniform | Clustered |
-|---|---|---|
-| 32,768 / 1,024 | 27.0 ns | 20.2 ns |
-| 131,072 / 16,384 | 27.2 ns | 18.9 ns |
-| 524,288 / 262,144 | 27.7 ns | 19.2 ns |
 
 Full methodology, per-workload tables, `std::map` / CppTrader baselines, tail
 latency and graphs: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
@@ -192,7 +197,8 @@ FetchContent_MakeAvailable(flatbook)
 target_link_libraries(app PRIVATE flatbook::flatbook)
 ```
 
-Also packaged for vcpkg (`vcpkg.json`) and Conan (`conanfile.py`).
+Local vcpkg and Conan manifests are included (`vcpkg.json`, `conanfile.py`); the
+package is not yet published to the public registries.
 
 ## Building
 
