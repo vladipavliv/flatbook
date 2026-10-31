@@ -88,14 +88,15 @@ result ack and every fill. Ids are recycled LIFO and there is no hashing,
 randomness or clock, so replaying the same operations reproduces the same ids,
 fills and state.
 
-- The `Journal` records add/cancel/modify/rebase in submission order; `replayInto`
-  re-executes them on a fresh engine and must reproduce the state exactly.
-- `snapshot()`/`restore()` capture the full state (nodes, levels, bitmap, id
-  pool, generation counters, window base, next sequence); a checkpoint plus the
-  journal tail is the recovery unit, persisted by `Persist` (see the round-trip
-  tests in `tests/src/TestJournal.cpp` and `TestPersist.cpp`).
-- `reduce()` and `clear()` are **not** journaled: `clear()` resets the sequence
-  (start a new journal), and `reduce()` is a feed-driven execute-by-id primitive.
+- `snapshot()` / `restore()` / `snapshotInto()` capture the full state (nodes,
+  levels, bitmap, id pool, window base, next sequence) for save/restore and
+  state comparison.
+- Replaying the same operations on a fresh engine reproduces the same ids, fills
+  and book state, so two engines fed identical input can be diffed
+  state-for-state.
+- `reduce()` and `clear()` sit outside that stream: `clear()` resets the
+  sequence (fresh state), and `reduce()` is a feed-driven execute-by-id
+  primitive.
 
 ## Safety model
 

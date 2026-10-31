@@ -164,9 +164,6 @@ jobs:
       - name: Fuzz engine
         run: ./build/fuzz/flatbook_fuzz -max_total_time=40 -timeout=2
 
-      - name: Fuzz persistence
-        run: ./build/fuzz/flatbook_fuzz_persist fuzz/corpus -max_total_time=40 -timeout=2
-
       - name: Fuzz LOBSTER parser
         run: ./build/fuzz/flatbook_fuzz_lobster_line -max_total_time=20 -timeout=2
 

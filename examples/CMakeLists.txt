@@ -4,8 +4,5 @@ target_link_libraries(example_basic PRIVATE flatbook)
 add_executable(example_dispatcher dispatcher.cpp)
 target_link_libraries(example_dispatcher PRIVATE flatbook)
 
-add_executable(example_persistence persistence.cpp)
-target_link_libraries(example_persistence PRIVATE flatbook)
-
 add_executable(example_lobster_replay lobster_replay.cpp)
 target_link_libraries(example_lobster_replay PRIVATE flatbook)

@@ -5,13 +5,11 @@
 #include <flatbook/Concepts.hpp>
 #include <flatbook/Id.hpp>
 #include <flatbook/IdPool.hpp>
-#include <flatbook/Journal.hpp>
 #include <flatbook/Lobster.hpp>
 #include <flatbook/LobsterValidator.hpp>
 #include <flatbook/MatchingDispatcher.hpp>
 #include <flatbook/MatchingEngine.hpp>
 #include <flatbook/OrderBook.hpp>
-#include <flatbook/Persist.hpp>
 #include <flatbook/SpinWait.hpp>
 #include <flatbook/SpscQueue.hpp>
 #include <flatbook/Types.hpp>

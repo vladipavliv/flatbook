@@ -33,11 +33,10 @@ The items below are the plan for leaving `0.x`. Check them off as they land.
 
 - [x] Reason codes on every result (`Reason` + `CancelResult::reason`).
 - [x] `docs/SEMANTICS.md` (edge cases tied to tests) and `docs/API.md`.
-- [x] Snapshot / journal / persistence with a round-trip test.
 - [x] LOBSTER feed-driven replay and a validator with a fixture.
 - [x] Python bindings (`pip install .`, pytest, stubs, batch API).
 - [x] Honest benchmarks (baseline subtraction, `--report`, real matcher baseline).
-- [x] libFuzzer targets (engine, persistence, LOBSTER parser) in CI.
+- [x] libFuzzer targets (engine, LOBSTER parser) in CI.
 - [ ] aarch64 CI matrix green.
 - [ ] `pip install` / `find_package` smoke tests for the C++ consumer in CI.
 - [ ] At least one external user / third-party audit.

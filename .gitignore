@@ -7,9 +7,8 @@ build-tidy/
 build-py/
 cmake-build-*/
 
-# libFuzzer evolved corpus (regenerated on every run); keep only the seed.
+# libFuzzer evolved corpus (regenerated on every run).
 fuzz/corpus/*
-!fuzz/corpus/persist_seed
 *.o
 *.obj
 *.a
@@ -52,3 +51,6 @@ __pycache__/
 # Личный роадмап (не в репе)
 ROADMAP.md
 TODO.md
+
+# Дизайн персистентности (закрытая ПРО-версия, не в открытой репе)
+docs/PERSISTENCE_DESIGN.md

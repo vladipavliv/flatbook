@@ -51,17 +51,15 @@ Initial development. No stable release yet.
   SideMismatch, UnsupportedModify).
 - `MatchingEngine::restOrder()` / `reduce()`: feed-driven "insert without
   matching" and execute-by-id primitives for market-data replay.
-- `Journal` + `snapshot()`/`restore()`/`snapshotInto()`: deterministic operation
-  journal and full-state snapshot, with `replayInto` round-trip.
-- `Persist`: versioned, checksummed, atomic (temp+fsync+rename) snapshot + journal
-  checkpoint to disk, with config-fingerprint validation.
+- `snapshot()` / `restore()` / `snapshotInto()`: full-state snapshot and restore
+  of the engine and book (nodes, levels, bitmap, id pool, window base, next
+  sequence), for save/restore and state comparison.
 - `Lobster` replay (`LobsterReplay` throughput benchmark and `LobsterFeed`
   feed-driven replay), orderbook parsing, and `LobsterValidator` for validating a
   feed against the LOBSTER orderbook file.
 - `Wait`: portable futex wait/wake with a hybrid spin-then-block idle loop.
-- Test suite: unit, container, engine, property, invariant-fuzz, journal,
-  persistence, LOBSTER and dispatcher tests, run under ASan/UBSan, TSan and
-  libFuzzer.
+- Test suite: unit, container, engine, property, invariant-fuzz, LOBSTER and
+  dispatcher tests, run under ASan/UBSan, TSan and libFuzzer.
 - CI matrix: GCC, Clang, Clang + libc++, MSVC, TSan, coverage, clang-tidy,
   libFuzzer, and a `-Werror` build.
 - Benchmarks against a `std::map` baseline with latency-vs-price-range plots,

@@ -8,8 +8,6 @@ self-contained (verified by `./dev.sh headers`).
 | `MatchingEngine.hpp` | `MatchingEngine<Book>`, `Result`, `Reason`, `AddResult`, `CancelResult`, `Fill`, order / TIF enums |
 | `OrderBook.hpp` | `OrderBook<Size, PriceLevels, Id, Participant, Rebaseable>` (the data structure) |
 | `MatchingDispatcher.hpp` | `MatchingDispatcher`, `DispatcherEvent`, `makeDispatcher`, `MatchingConfig`, `Stats` |
-| `Journal.hpp` | `Journal<Engine>`, `replayInto` |
-| `Persist.hpp` | `saveToFile`, `loadFromFile` |
 | `Lobster.hpp` | `LobsterReplay`, `LobsterFeed`, `parseLobsterLine`, `parseOrderbookLine`, `replayLobsterFile` |
 | `LobsterValidator.hpp` | `validateLobster`, `matchesTopN` |
 | `Id.hpp`, `IdPool.hpp` | `RawId`, `GenerationalId`, `IdPool` |
@@ -19,9 +17,6 @@ self-contained (verified by `./dev.sh headers`).
 
 - Everything in `flatbook::detail` (e.g. the futex primitives in `Wait.hpp`) is
   internal and not covered by the semver promise.
-- `Persist.hpp`'s serialization helpers (`writeId`, `readOrder`, …) and
-  `ByteReader`/`ByteWriter` are implementation details of `saveToFile` /
-  `loadFromFile`; use the top-level functions only.
 
 ## Semver
 

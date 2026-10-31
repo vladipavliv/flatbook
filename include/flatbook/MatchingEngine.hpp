@@ -26,8 +26,8 @@ namespace flatbook {
  * increasing `Sequence`, which is stamped on the resulting ack and every fill,
  * giving a deterministic order of submission and execution events for replay.
  * `cancelOrder` and `rebase` are assigned sequences too (via their result
- * structs), so every mutating operation carries a sequence and can be journaled
- * and replayed deterministically.
+ * structs), so every mutating operation carries a sequence and can be replayed
+ * deterministically.
  *
  * Self-trade prevention is optional: when the book's `Participant` type is not
  * `void`, each order carries a participant key. A key of `0` disables STP (the
@@ -250,7 +250,7 @@ public:
    * @param id Order id returned by addOrder() (Resting result).
    * @return cancelled = true if removed, false if the id is not live (or
    *         stale); seq = the sequence assigned to this cancel (always
-   *         consumed, even for a stale id, so the journal stays deterministic).
+   *         consumed, even for a stale id, so replay stays deterministic).
    */
   [[nodiscard]]
   CancelResult cancelOrder(OrderIdx id) noexcept {
@@ -398,7 +398,7 @@ public:
    * outside the new window are removed and their ids returned in `cancelled`;
    * the engine does not emit a cancel event for them itself, so the caller is
    * responsible for reporting the cancellations. The rebase is assigned a
-   * sequence (stamped in `seq`) so it can be journaled and replayed.
+   * sequence (stamped in `seq`) so it can be replayed deterministically.
    *
    * @return The cancelled order ids and the sequence assigned to this rebase.
    */

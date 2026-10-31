@@ -16,5 +16,4 @@ function(flatbook_add_fuzz_target name src)
 endfunction()
 
 flatbook_add_fuzz_target(flatbook_fuzz fuzz_matching.cpp)
-flatbook_add_fuzz_target(flatbook_fuzz_persist fuzz_persist.cpp)
 flatbook_add_fuzz_target(flatbook_fuzz_lobster_line fuzz_lobster_line.cpp)
