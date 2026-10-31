@@ -206,3 +206,32 @@ def test_aon_batch():
     assert r["reason"][0] == 6  # AonInsufficientLiquidity
 
 
+def test_concurrent_batch_does_not_corrupt():
+    import threading
+
+    e = fb.MatchingEngine("medium")
+    n = 1000
+
+    def worker(seed):
+        rng = np.random.default_rng(seed)
+        types = np.full(n, fb.LIMIT, dtype=np.uint8)
+        tifs = np.full(n, fb.GTC, dtype=np.uint8)
+        sides = (rng.integers(0, 2, n)).astype(np.uint8)
+        prices = (100 + rng.integers(0, 50, n)).astype(np.int64)
+        qty = (1 + rng.integers(0, 5, n)).astype(np.uint32)
+        part = np.zeros(n, dtype=np.uint32)
+        e.add_orders(types, tifs, sides, prices, qty, part)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # Smoke check: no crash/corruption under concurrent batch adds.
+    ask_p, ask_s, bid_p, bid_s = e.depth(5)
+    assert ask_p.shape == (5,)
+    assert e.open_orders() >= 0
+
+
+

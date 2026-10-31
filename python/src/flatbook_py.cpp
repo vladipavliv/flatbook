@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -122,6 +123,7 @@ nb::ndarray<nb::numpy, T, nb::ndim<1>> toNdArray(const std::vector<T> &v) {
 
 struct PyEngine {
   EngineVariant engine_;
+  std::mutex mutex_; // serializes access when add_orders runs with the GIL released
 
   explicit PyEngine(const std::string &profile) {
     if (profile == "small") {
@@ -137,6 +139,7 @@ struct PyEngine {
 
   nb::object addOrder(int type, int tif, int side, std::int64_t price, std::uint32_t quantity,
                       std::uint32_t participant, bool postOnly) {
+    std::lock_guard<std::mutex> lock(mutex_);
     return std::visit(
         [&](auto &ep) -> nb::object {
           using Engine = std::decay_t<decltype(*ep)>;
@@ -152,6 +155,7 @@ struct PyEngine {
   }
 
   bool cancel(std::uint64_t orderId) {
+    std::lock_guard<std::mutex> lock(mutex_);
     return std::visit(
         [&](auto &ep) -> bool {
           using Engine = std::decay_t<decltype(*ep)>;
@@ -161,6 +165,7 @@ struct PyEngine {
   }
 
   nb::object modify(std::uint64_t orderId, std::int64_t price, std::uint32_t quantity) {
+    std::lock_guard<std::mutex> lock(mutex_);
     return std::visit(
         [&](auto &ep) -> nb::object {
           using Engine = std::decay_t<decltype(*ep)>;
@@ -182,6 +187,7 @@ struct PyEngine {
   }
 
   nb::object bestBid() {
+    std::lock_guard<std::mutex> lock(mutex_);
     return std::visit(
         [&](auto &ep) -> nb::object {
           using Engine = std::decay_t<decltype(*ep)>;
@@ -195,6 +201,7 @@ struct PyEngine {
   }
 
   nb::object bestAsk() {
+    std::lock_guard<std::mutex> lock(mutex_);
     return std::visit(
         [&](auto &ep) -> nb::object {
           using Engine = std::decay_t<decltype(*ep)>;
@@ -208,12 +215,14 @@ struct PyEngine {
   }
 
   std::size_t openOrders() {
+    std::lock_guard<std::mutex> lock(mutex_);
     return std::visit([&](auto &ep) { return ep->openOrders(); }, engine_);
   }
 
   /// Top-@p n levels on each side as four numpy arrays (ask_price, ask_size,
   /// bid_price, bid_size). An absent level uses price -1 and size 0.
   nb::object depth(std::size_t n) {
+    std::lock_guard<std::mutex> lock(mutex_);
     return std::visit(
         [&](auto &ep) -> nb::object {
           using Engine = std::decay_t<decltype(*ep)>;
@@ -261,6 +270,7 @@ struct PyEngine {
       nb::ndarray<nb::numpy, const std::int64_t, nb::ndim<1>, nb::c_contig> price,
       nb::ndarray<nb::numpy, const std::uint32_t, nb::ndim<1>, nb::c_contig> quantity,
       nb::ndarray<nb::numpy, const std::uint32_t, nb::ndim<1>, nb::c_contig> participant) {
+    std::lock_guard<std::mutex> lock(mutex_);
     const std::size_t n = type.shape(0);
     if (tif.shape(0) != n || side.shape(0) != n || price.shape(0) != n ||
         quantity.shape(0) != n || participant.shape(0) != n) {
