@@ -5,6 +5,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/C%2B%2B-20-blue?style=flat-square" alt="Standard: C++20">
   <img src="https://img.shields.io/badge/header--only-ff69b4?style=flat-square" alt="Header-only">
+  <a href="https://pypi.org/project/flatbook/"><img src="https://img.shields.io/pypi/v/flatbook?style=flat-square" alt="PyPI"></a>
   <a href="https://github.com/vladipavliv/flatbook/releases"><img src="https://img.shields.io/github/v/release/vladipavliv/flatbook?style=flat-square" alt="Release"></a>
 </p>
 
