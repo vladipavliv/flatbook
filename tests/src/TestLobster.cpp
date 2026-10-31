@@ -509,5 +509,27 @@ TEST(Lobster, ReplayStaleReferenceAfterFullFill) {
   EXPECT_EQ(replay.stats().skipped, 0u);
 }
 
+TEST(Lobster, FeedHiddenExecutionDoesNotTouchBook) {
+  Engine e; // window [0, 64)
+  LobsterFeed<Engine> feed(e);
+
+  feed.message(1, 1, 10, 50, false); // visible sell 10 @ 50 (id 1)
+  // A hidden execution (type 5) references a hidden order id, never a visible
+  // order; even if the id coincides with a visible order, the book is untouched.
+  feed.message(5, 1, 3, 50, false);
+  EXPECT_EQ(e.book().volume(50, Side::Sell), 10u);
+  EXPECT_EQ(feed.stats().executions, 1u);
+}
+
+TEST(Lobster, ReplayHiddenExecutionDoesNotTouchBook) {
+  Engine e;
+  LobsterReplay<Engine> replay(e);
+
+  replay.message(1, 1, 10, 50, false); // visible sell 10 @ 50 (id 1)
+  replay.message(5, 1, 3, 50, false);  // hidden execution with a coinciding id
+  EXPECT_EQ(e.book().volume(50, Side::Sell), 10u);
+  EXPECT_EQ(replay.stats().executions, 1u);
+}
+
 } // namespace
 } // namespace flatbook

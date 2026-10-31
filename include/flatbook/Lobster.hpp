@@ -161,8 +161,7 @@ public:
       }
       break;
     }
-    case 4:
-    case 5: { // visible / hidden execution
+    case 4: { // visible execution
       ++stats_.executions;
       auto it = orders_.find(orderId);
       if (it != orders_.end()) {
@@ -175,6 +174,9 @@ public:
       }
       break;
     }
+    case 5: // hidden execution: order_id is a hidden order, not in the visible book
+      ++stats_.executions;
+      break;
     default: // cross trade, trading halt, unknown
       ++stats_.skipped;
       break;
@@ -335,10 +337,12 @@ public:
       ++stats_.deletions;
       cancelById(orderId);
       break;
-    case 4:
-    case 5: // visible / hidden execution
+    case 4: // visible execution
       ++stats_.executions;
       reduceById(orderId, size);
+      break;
+    case 5: // hidden execution: order_id is a hidden order, not in the visible book
+      ++stats_.executions;
       break;
     default: // cross trade, trading halt, unknown
       ++stats_.skipped;
