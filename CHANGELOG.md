@@ -41,7 +41,7 @@ Initial development. No stable release yet.
 - `MatchingDispatcher`: sharded multi-symbol matching across worker threads
   (single ingress, single collector) with add/cancel/modify/rebase, correlation
   ids, non-blocking `try*` backpressure, runtime counters, a template (zero-cost)
-  event callback, and a futex-based idle wait.
+  event callback, and a park/unpark idle wait.
 - Price window: logical `Price` (int64) mapped to a fixed-width slot window via
   a runtime `base_`; `rebase()` shifts it (optional, `Rebaseable=false` compiles
   it out); out-of-window limit prices are rejected with a reason.
@@ -57,7 +57,8 @@ Initial development. No stable release yet.
 - `Lobster` replay (`LobsterReplay` throughput benchmark and `LobsterFeed`
   feed-driven replay), orderbook parsing, and `LobsterValidator` for validating a
   feed against the LOBSTER orderbook file.
-- `Wait`: portable futex wait/wake with a hybrid spin-then-block idle loop.
+- `Parker`: lost-wakeup-safe park/unpark via `std::atomic::wait/notify`, used by
+  the hybrid spin-then-block idle loop.
 - Test suite: unit, container, engine, property, invariant-fuzz, LOBSTER and
   dispatcher tests, run under ASan/UBSan, TSan and libFuzzer.
 - CI matrix: GCC, Clang, Clang + libc++, MSVC, TSan, coverage, clang-tidy,
