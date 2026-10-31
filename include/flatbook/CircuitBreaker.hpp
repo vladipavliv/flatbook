@@ -11,13 +11,17 @@ namespace flatbook {
  *
  * Wraps a MatchingEngine without touching its hot path. It maintains a
  * reference price (the last trade) and rejects limit orders whose price falls
- * outside `[reference - band, reference + band]`; a trade that moves the
- * reference by more than `maxMove` halts the market (all further orders are
- * rejected until `resume()`).
+ * outside `[reference - band, reference + band]`; an order whose fills move the
+ * reference by more than `maxMove` (measured from the reference at order start)
+ * halts the market, so a sweep that walks the band in small steps is caught.
  *
  * Rejections happen before the engine is reached, so they do not consume a
  * sequence; a band rejection carries `Reason::PriceOutOfWindow`, a halted
  * rejection carries `Reason::None` (query `halted()` for the state).
+ *
+ * `addOrder` and `modify` are guarded; `cancel` is not (it never changes
+ * price). A halt raised mid-sweep does not stop the remainder of the
+ * already-matched order (the engine finishes the sweep).
  *
  * @tparam Engine A MatchingEngine type.
  */
@@ -28,6 +32,7 @@ public:
   using AddResult = typename Engine::AddResult;
   using Order = typename Engine::Order;
   using Fill = typename Engine::Fill;
+  using OrderIdx = typename Engine::OrderIdx;
 
   CircuitBreaker(Engine &engine, Price reference, Price band, Price maxMove) noexcept
       : engine_{engine}, reference_{reference}, band_{band}, maxMove_{maxMove} {}
@@ -75,8 +80,25 @@ public:
     if (order.type == Engine::OrderType::Limit && !inBand(order.price)) {
       return reject(order);
     }
+    const Price startReference = reference_; // anchor: move is measured from order start
     return engine_.addOrder(order, [&](const Fill &f) {
-      checkMove(f.price);
+      checkMove(f.price, startReference);
+      reference_ = f.price;
+      onFill(f);
+    });
+  }
+
+  template <typename OnFill>
+  AddResult modify(OrderIdx id, const Order &replacement, OnFill &&onFill) {
+    if (halted_) {
+      return reject(replacement);
+    }
+    if (replacement.type == Engine::OrderType::Limit && !inBand(replacement.price)) {
+      return reject(replacement);
+    }
+    const Price startReference = reference_;
+    return engine_.modify(id, replacement, [&](const Fill &f) {
+      checkMove(f.price, startReference);
       reference_ = f.price;
       onFill(f);
     });
@@ -93,8 +115,8 @@ private:
     return r;
   }
 
-  void checkMove(Price price) noexcept {
-    const Price move = price >= reference_ ? price - reference_ : reference_ - price;
+  void checkMove(Price price, Price reference) noexcept {
+    const Price move = price >= reference ? price - reference : reference - price;
     if (move > maxMove_) {
       halted_ = true;
     }

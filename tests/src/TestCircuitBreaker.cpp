@@ -92,5 +92,43 @@ TEST(CircuitBreaker, ReferenceTracksTrades) {
   EXPECT_EQ(g.reference(), 105);
 }
 
+TEST(CircuitBreaker, SweepHaltsWithoutALargeSingleStep) {
+  Engine e;
+  Guard g(e, /*reference=*/100, /*band=*/1000, /*maxMove=*/5);
+  const auto noFill = [](const Engine::Fill &) {};
+
+  // Rest sells at 102, 106, 110, 114: a sweep walks the book in steps of 4,
+  // each below maxMove 5, but the total move from the order-start reference
+  // (100) must still trigger the halt.
+  (void)g.addOrder(limit(102, 1, false), noFill);
+  (void)g.addOrder(limit(106, 1, false), noFill);
+  (void)g.addOrder(limit(110, 1, false), noFill);
+  (void)g.addOrder(limit(114, 1, false), noFill);
+
+  (void)g.addOrder(limit(114, 4, true), noFill);
+  EXPECT_TRUE(g.halted());
+  EXPECT_EQ(g.reference(), 114);
+}
+
+TEST(CircuitBreaker, ModifyIsGuarded) {
+  Engine e;
+  Guard g(e, /*reference=*/100, /*band=*/10, /*maxMove=*/50);
+  const auto noFill = [](const Engine::Fill &) {};
+
+  auto r = g.addOrder(limit(100, 1, true), noFill);
+  ASSERT_EQ(r.result, Engine::Result::Resting);
+
+  // Modifying to a price outside the band is rejected before reaching the book.
+  auto m = g.modify(r.orderId, limit(120, 1, true), noFill);
+  EXPECT_EQ(m.result, Engine::Result::Rejected);
+  EXPECT_EQ(m.reason, Engine::Reason::PriceOutOfWindow);
+  EXPECT_EQ(e.bestBid(), 100); // original order untouched
+
+  // In-band modify still works.
+  m = g.modify(r.orderId, limit(105, 1, true), noFill);
+  EXPECT_EQ(m.result, Engine::Result::Resting);
+  EXPECT_EQ(e.bestBid(), 105);
+}
+
 } // namespace
 } // namespace flatbook
