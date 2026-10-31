@@ -17,10 +17,6 @@ jobs:
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.21.3
-        env:
-          # flatbook is 64-bit only (a low-latency order book); skip the 32-bit
-          # (i686) manylinux build that fails to compile.
-          CIBW_ARCHS_LINUX: x86_64
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4

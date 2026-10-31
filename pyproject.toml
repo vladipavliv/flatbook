@@ -40,3 +40,7 @@ include = [
     "LICENSE",
     "pyproject.toml",
 ]
+
+[tool.cibuildwheel]
+# flatbook is 64-bit only (a low-latency order book); skip 32-bit wheels.
+skip = ["*-manylinux_i686", "*-musllinux_i686"]
