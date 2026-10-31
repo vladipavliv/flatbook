@@ -150,7 +150,7 @@ Stats toStats(std::vector<std::uint64_t> &buf, std::size_t samples) {
 
 template <typename Book, typename Step>
 Stats measureTail(const std::vector<GenOrder> &orders, Step &&step,
-                  std::vector<std::uint64_t> &buf) {
+                  std::vector<std::uint64_t> &buf, std::size_t warmupCount) {
   auto book = std::make_unique<Book>();
   std::size_t idx = 0;
 
@@ -163,11 +163,11 @@ Stats measureTail(const std::vector<GenOrder> &orders, Step &&step,
     }
   };
 
-  warm(kWarmUpCount);
+  warm(warmupCount);
   for (std::size_t i = 0; i < kSamples; ++i) {
     if (i != 0 && i % kBatch == 0) {
       book = std::make_unique<Book>();
-      warm(kWarmUpCount);
+      warm(warmupCount);
     }
     if (idx >= orders.size()) {
       idx = 0;
@@ -182,11 +182,11 @@ Stats measureTail(const std::vector<GenOrder> &orders, Step &&step,
 
 template <typename Book, typename Step>
 Stats measureMedian(const std::vector<GenOrder> &orders, Step &&step,
-                    std::vector<std::uint64_t> &buf) {
+                    std::vector<std::uint64_t> &buf, std::size_t warmupCount) {
   std::vector<Stats> runs;
   runs.reserve(gRepeats);
   for (std::size_t r = 0; r < gRepeats; ++r) {
-    runs.push_back(measureTail<Book>(orders, step, buf));
+    runs.push_back(measureTail<Book>(orders, step, buf, warmupCount));
   }
   const auto med = [&](double Stats::*field) {
     std::vector<double> v;
@@ -211,7 +211,7 @@ void printRow(const std::string &label, const Stats &s) {
 
 template <PriceDistribution Dist, std::uint32_t PriceLevels, std::uint32_t BookSize, bool WithMap>
 void runAll(std::vector<std::uint64_t> &buf) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
   using Engine = MatchingEngine<OrderBook<BookSize, PriceLevels>>;
 
   const std::string base =
@@ -219,15 +219,17 @@ void runAll(std::vector<std::uint64_t> &buf) {
 
   printRow(
       "add   FlatBook   " + base,
-      measureMedian<Engine>(orders, [](auto &e, const GenOrder &o) { (void)addLimit(e, o); }, buf));
+      measureMedian<Engine>(orders, [](auto &e, const GenOrder &o) { (void)addLimit(e, o); }, buf,
+                            warmupDepth<BookSize>()));
   printRow(
       "rest  FlatBook   " + base,
-      measureMedian<Engine>(orders, [](auto &e, const GenOrder &o) { (void)addRest(e, o); }, buf));
+      measureMedian<Engine>(orders, [](auto &e, const GenOrder &o) { (void)addRest(e, o); }, buf,
+                            warmupDepth<BookSize>()));
   if constexpr (WithMap) {
     printRow("rest  std::map   " + base,
              measureMedian<MapBook>(
                  orders, [](auto &b, const GenOrder &o) { (void)b.addLimit(o.price, o.qty, true); },
-                 buf));
+                 buf, warmupDepth<BookSize>()));
   }
 }
 

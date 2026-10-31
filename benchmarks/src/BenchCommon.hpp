@@ -8,19 +8,29 @@
 
 namespace flatbook {
 
-// Number of generated orders per run. Large enough that the warm book runs
-// for many iterations before it needs to be cleared and re-warmed.
-inline constexpr std::uint32_t kOrderCount = 1 << 17;
+// Fraction of the book capacity pre-loaded before timing, so depth scales with
+// capacity: the "latency vs capacity" claim is tested against a meaningfully
+// deep book, not a small fixed warm working set.
+inline constexpr double kDepthFraction = 0.5;
 
 // Orders to pre-load into the book before timing starts.
-inline constexpr std::size_t kWarmUpCount = 20000;
+template <std::uint32_t BookSize>
+constexpr std::size_t warmupDepth() noexcept {
+  return static_cast<std::size_t>(static_cast<double>(BookSize) * kDepthFraction);
+}
 
-// Per (distribution, priceLevels) order cache: generated once, reused by every
-// benchmark that shares the config.
-template <PriceDistribution Dist, std::uint32_t PriceLevels>
+// Total generated orders per config: the warm-up depth plus a churn tail.
+template <std::uint32_t BookSize>
+constexpr std::size_t orderCount() noexcept {
+  return warmupDepth<BookSize>() * 2;
+}
+
+// Per (distribution, priceLevels, bookSize) order cache: generated once,
+// reused by every benchmark that shares the config.
+template <PriceDistribution Dist, std::uint32_t PriceLevels, std::uint32_t BookSize>
 auto cachedOrders() -> const std::vector<GenOrder> & {
   static const std::vector<GenOrder> cache = [] {
-    OrderGenerator gen(kOrderCount, Dist, PriceLevels);
+    OrderGenerator gen(orderCount<BookSize>(), Dist, PriceLevels);
     return std::vector<GenOrder>(gen.orders());
   }();
   return cache;

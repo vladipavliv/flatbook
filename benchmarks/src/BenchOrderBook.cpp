@@ -21,7 +21,7 @@ namespace flatbook {
 template <std::uint32_t BookSize, std::uint32_t PriceLevels, PriceDistribution Dist>
 void BM_Latency(benchmark::State &state) {
   using Engine = MatchingEngine<OrderBook<BookSize, PriceLevels>>;
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
 
   auto book = std::make_unique<Engine>();
 
@@ -34,13 +34,13 @@ void BM_Latency(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book->clear();
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
 
@@ -78,7 +78,7 @@ void BM_Cancel(benchmark::State &state) {
   // Generational ids so a stale (already-filled) id never aliases a recycled
   // slot: cancels of dead ids are no-ops, matching the monotonic-id map baseline.
   using Engine = MatchingEngine<OrderBook<BookSize, PriceLevels, GenerationalId<BookSize, 32>>>;
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
   const int nominalCancelPct = static_cast<int>(state.range(0));
 
   // Precompute the add/cancel pattern and a random cancel target so no RNG
@@ -113,14 +113,14 @@ void BM_Cancel(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book->clear();
       activeIds.clear();
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       patternIdx = 0;
       state.ResumeTiming();
     }
@@ -169,7 +169,7 @@ void BM_Cancel(benchmark::State &state) {
 template <std::uint32_t BookSize, std::uint32_t PriceLevels, PriceDistribution Dist>
 void BM_RestLatency(benchmark::State &state) {
   using Engine = MatchingEngine<OrderBook<BookSize, PriceLevels>>;
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
 
   auto book = std::make_unique<Engine>();
 
@@ -181,13 +181,13 @@ void BM_RestLatency(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book->clear();
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
     const auto &o = orders[idx++];
@@ -198,9 +198,9 @@ void BM_RestLatency(benchmark::State &state) {
   }
 }
 
-template <std::uint32_t PriceLevels, PriceDistribution Dist>
+template <std::uint32_t PriceLevels, std::uint32_t BookSize, PriceDistribution Dist>
 void BM_MapRestLatency(benchmark::State &state) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
 
   MapBook book;
   std::size_t idx = 0;
@@ -212,13 +212,13 @@ void BM_MapRestLatency(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book = MapBook{};
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
     const auto &o = orders[idx++];
@@ -228,9 +228,9 @@ void BM_MapRestLatency(benchmark::State &state) {
   }
 }
 
-template <std::uint32_t PriceLevels, PriceDistribution Dist>
+template <std::uint32_t PriceLevels, std::uint32_t BookSize, PriceDistribution Dist>
 void BM_MapCancel(benchmark::State &state) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
   const int nominalCancelPct = static_cast<int>(state.range(0));
 
   std::vector<bool> pattern(orders.size());
@@ -264,14 +264,14 @@ void BM_MapCancel(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book = MapBook{};
       activeIds.clear();
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       patternIdx = 0;
       state.ResumeTiming();
     }
@@ -316,7 +316,7 @@ void BM_MapCancel(benchmark::State &state) {
 template <std::uint32_t BookSize, std::uint32_t PriceLevels, PriceDistribution Dist>
 void BM_OrderType(benchmark::State &state) {
   using Engine = MatchingEngine<OrderBook<BookSize, PriceLevels>>;
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
   const int type = static_cast<int>(state.range(0));
 
   switch (type) {
@@ -350,13 +350,13 @@ void BM_OrderType(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book->clear();
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
 
@@ -404,9 +404,9 @@ void BM_OrderType(benchmark::State &state) {
 // ---------------------------------------------------------------------------
 // Baseline: the same addLimit workload against a std::map order book.
 // ---------------------------------------------------------------------------
-template <std::uint32_t PriceLevels, PriceDistribution Dist>
+template <std::uint32_t PriceLevels, std::uint32_t BookSize, PriceDistribution Dist>
 void BM_MapLatency(benchmark::State &state) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
 
   MapBook book;
   std::size_t idx = 0;
@@ -419,13 +419,13 @@ void BM_MapLatency(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book = MapBook{};
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
 
@@ -441,9 +441,9 @@ void BM_MapLatency(benchmark::State &state) {
 // engine). Same order stream as FlatBook; liquibook has no resting order id,
 // so the depth is compared via bestBid/bestAsk/volume rather than fills.
 // ---------------------------------------------------------------------------
-template <std::uint32_t PriceLevels, PriceDistribution Dist>
+template <std::uint32_t PriceLevels, std::uint32_t BookSize, PriceDistribution Dist>
 void BM_LiquibookRestLatency(benchmark::State &state) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
 
   LiquibookBook book;
   std::size_t idx = 0;
@@ -455,13 +455,13 @@ void BM_LiquibookRestLatency(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book = LiquibookBook{};
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
     const auto &o = orders[idx++];
@@ -471,9 +471,9 @@ void BM_LiquibookRestLatency(benchmark::State &state) {
   }
 }
 
-template <std::uint32_t PriceLevels, PriceDistribution Dist>
+template <std::uint32_t PriceLevels, std::uint32_t BookSize, PriceDistribution Dist>
 void BM_LiquibookLatency(benchmark::State &state) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
 
   LiquibookBook book;
   std::size_t idx = 0;
@@ -485,13 +485,13 @@ void BM_LiquibookLatency(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book = LiquibookBook{};
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
     const auto &o = orders[idx++];
@@ -504,9 +504,9 @@ void BM_LiquibookLatency(benchmark::State &state) {
 // ---------------------------------------------------------------------------
 // Baseline: the same addLimit workload against an unordered_map order book.
 // ---------------------------------------------------------------------------
-template <std::uint32_t PriceLevels, PriceDistribution Dist>
+template <std::uint32_t PriceLevels, std::uint32_t BookSize, PriceDistribution Dist>
 void BM_HashMapLatency(benchmark::State &state) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
   HashMapBook book;
   std::size_t idx = 0;
 
@@ -518,13 +518,13 @@ void BM_HashMapLatency(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book = HashMapBook{};
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
 
@@ -586,46 +586,46 @@ FLATBOOK_REGISTER_CANCEL(524288, 262144);
 
 FLATBOOK_REGISTER_ORDER_TYPE(32768, 1024);
 
-#define FLATBOOK_REGISTER_MAP(Levels)                                                              \
-  BENCHMARK_TEMPLATE(BM_MapLatency, Levels, PriceDistribution::Uniform);                           \
-  BENCHMARK_TEMPLATE(BM_MapLatency, Levels, PriceDistribution::Clustered)
+#define FLATBOOK_REGISTER_MAP(Size, Levels)                                                         \
+  BENCHMARK_TEMPLATE(BM_MapLatency, Levels, Size, PriceDistribution::Uniform);                      \
+  BENCHMARK_TEMPLATE(BM_MapLatency, Levels, Size, PriceDistribution::Clustered)
 
-FLATBOOK_REGISTER_MAP(1024);
-FLATBOOK_REGISTER_MAP(16384);
-FLATBOOK_REGISTER_MAP(262144);
+FLATBOOK_REGISTER_MAP(32768, 1024);
+FLATBOOK_REGISTER_MAP(131072, 16384);
+FLATBOOK_REGISTER_MAP(524288, 262144);
 
-#define FLATBOOK_REGISTER_HASHMAP(Levels)                                                          \
-  BENCHMARK_TEMPLATE(BM_HashMapLatency, Levels, PriceDistribution::Uniform);                       \
-  BENCHMARK_TEMPLATE(BM_HashMapLatency, Levels, PriceDistribution::Clustered)
+#define FLATBOOK_REGISTER_HASHMAP(Size, Levels)                                                    \
+  BENCHMARK_TEMPLATE(BM_HashMapLatency, Levels, Size, PriceDistribution::Uniform);                 \
+  BENCHMARK_TEMPLATE(BM_HashMapLatency, Levels, Size, PriceDistribution::Clustered)
 
-FLATBOOK_REGISTER_HASHMAP(1024);
-FLATBOOK_REGISTER_HASHMAP(16384);
-FLATBOOK_REGISTER_HASHMAP(262144);
+FLATBOOK_REGISTER_HASHMAP(32768, 1024);
+FLATBOOK_REGISTER_HASHMAP(131072, 16384);
+FLATBOOK_REGISTER_HASHMAP(524288, 262144);
 
-#define FLATBOOK_REGISTER_LIQUIBOOK(Levels)                                                        \
-  BENCHMARK_TEMPLATE(BM_LiquibookLatency, Levels, PriceDistribution::Uniform);                     \
-  BENCHMARK_TEMPLATE(BM_LiquibookLatency, Levels, PriceDistribution::Clustered);                   \
-  BENCHMARK_TEMPLATE(BM_LiquibookRestLatency, Levels, PriceDistribution::Uniform);                 \
-  BENCHMARK_TEMPLATE(BM_LiquibookRestLatency, Levels, PriceDistribution::Clustered)
+#define FLATBOOK_REGISTER_LIQUIBOOK(Size, Levels)                                                  \
+  BENCHMARK_TEMPLATE(BM_LiquibookLatency, Levels, Size, PriceDistribution::Uniform);               \
+  BENCHMARK_TEMPLATE(BM_LiquibookLatency, Levels, Size, PriceDistribution::Clustered);             \
+  BENCHMARK_TEMPLATE(BM_LiquibookRestLatency, Levels, Size, PriceDistribution::Uniform);           \
+  BENCHMARK_TEMPLATE(BM_LiquibookRestLatency, Levels, Size, PriceDistribution::Clustered)
 
-FLATBOOK_REGISTER_LIQUIBOOK(1024);
-FLATBOOK_REGISTER_LIQUIBOOK(16384);
-FLATBOOK_REGISTER_LIQUIBOOK(262144);
+FLATBOOK_REGISTER_LIQUIBOOK(32768, 1024);
+FLATBOOK_REGISTER_LIQUIBOOK(131072, 16384);
+FLATBOOK_REGISTER_LIQUIBOOK(524288, 262144);
 
-#define FLATBOOK_REGISTER_MAP_CANCEL(Levels)                                                       \
-  BENCHMARK_TEMPLATE(BM_MapCancel, Levels, PriceDistribution::Uniform)->Arg(0)->Arg(25)->Arg(50);  \
-  BENCHMARK_TEMPLATE(BM_MapCancel, Levels, PriceDistribution::Clustered)->Arg(0)->Arg(25)->Arg(50)
+#define FLATBOOK_REGISTER_MAP_CANCEL(Size, Levels)                                                 \
+  BENCHMARK_TEMPLATE(BM_MapCancel, Levels, Size, PriceDistribution::Uniform)->Arg(0)->Arg(25)->Arg(50); \
+  BENCHMARK_TEMPLATE(BM_MapCancel, Levels, Size, PriceDistribution::Clustered)->Arg(0)->Arg(25)->Arg(50)
 
-FLATBOOK_REGISTER_MAP_CANCEL(1024);
-FLATBOOK_REGISTER_MAP_CANCEL(16384);
-FLATBOOK_REGISTER_MAP_CANCEL(262144);
+FLATBOOK_REGISTER_MAP_CANCEL(32768, 1024);
+FLATBOOK_REGISTER_MAP_CANCEL(131072, 16384);
+FLATBOOK_REGISTER_MAP_CANCEL(524288, 262144);
 
 // Resting-only: large FlatBook capacity so every order rests (no rejection).
 #define FLATBOOK_REGISTER_REST(Levels)                                                             \
   BENCHMARK_TEMPLATE(BM_RestLatency, 262144, Levels, PriceDistribution::Uniform);                  \
   BENCHMARK_TEMPLATE(BM_RestLatency, 262144, Levels, PriceDistribution::Clustered);                \
-  BENCHMARK_TEMPLATE(BM_MapRestLatency, Levels, PriceDistribution::Uniform);                       \
-  BENCHMARK_TEMPLATE(BM_MapRestLatency, Levels, PriceDistribution::Clustered)
+  BENCHMARK_TEMPLATE(BM_MapRestLatency, Levels, 262144, PriceDistribution::Uniform);               \
+  BENCHMARK_TEMPLATE(BM_MapRestLatency, Levels, 262144, PriceDistribution::Clustered)
 
 FLATBOOK_REGISTER_REST(1024);
 FLATBOOK_REGISTER_REST(16384);

@@ -34,7 +34,9 @@ The benchmark sweeps three book configurations and two price-generation modes
 
 ## Add latency
 
-Median of 10 runs; 37% (Uniform) and 45% (Clustered) of the orders cross the book.
+Median of 10 runs; 37% (Uniform) and 45% (Clustered) of the orders cross the
+book. The book is pre-loaded to half its capacity before timing, so depth
+scales with capacity (the 524K config runs with ~260K live orders).
 
 | BookSize / PriceLevels | Uniform | Clustered |
 |---|---|---|
@@ -44,7 +46,8 @@ Median of 10 runs; 37% (Uniform) and 45% (Clustered) of the orders cross the boo
 
 **Why it scales.** Best-bid/best-ask discovery is O(1) via the multi-level
 bitmap, and insert/remove are O(1), so latency is flat across the full 256x
-price range (28.6 → 28.4 ns uniform). The configured `levels_` array grows with
+price range (28.6 → 28.4 ns uniform) *and* across the 16x capacity sweep, even
+with the book genuinely deep. The configured `levels_` array grows with
 `PriceLevels`, but the working set touched per operation stays small.
 
 ## Tail latency
@@ -136,12 +139,10 @@ Writes `docs/add_vs_price_levels.png`, `docs/rest_vs_price_levels.png`,
 - **Synthetic flow.** Prices are drawn from a uniform or clustered distribution,
   not a real day's LOBSTER/ITCH stream; the adversarial wide-range pattern is
   intentionally hard for flat arrays, the clustered one intentionally easy.
-- **"Flat latency" is about capacity, not depth.** The sweep varies the
-  *configured* capacity (32K-524K orders), but the working set stays small: the
-  warm workload crosses ~37-45% immediately and resets the book periodically, so
-  the actual resting depth is far below capacity. "Capacity has no effect on
-  percentiles" is therefore true by construction; a genuinely deep book
-  (hundreds of thousands of live orders) is a separate, not-yet-run scenario.
+- **Depth scales with capacity.** Each config pre-loads the book to half its
+  capacity before timing, so the flat-latency result holds on a genuinely deep
+  book (the 524K config runs with ~260K live orders), not a small fixed working
+  set.
 - **Single thread, single core.** The latency numbers are one thread on one
   core; they say nothing about multi-symbol throughput or contention.
 - **Frequency and boost.** `./dev.sh tail` warns when the governor is not

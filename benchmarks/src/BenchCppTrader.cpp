@@ -14,9 +14,9 @@ namespace flatbook {
 // best-price maintenance, with no crossing (CppTrader's market manager is a
 // market-data replay container, not a matching engine).
 // ---------------------------------------------------------------------------
-template <std::uint32_t PriceLevels, PriceDistribution Dist>
+template <std::uint32_t PriceLevels, std::uint32_t BookSize, PriceDistribution Dist>
 void BM_CppTraderRestLatency(benchmark::State &state) {
-  const auto &orders = cachedOrders<Dist, PriceLevels>();
+  const auto &orders = cachedOrders<Dist, PriceLevels, BookSize>();
 
   auto book = std::make_unique<CppTraderBook>();
   std::size_t idx = 0;
@@ -29,13 +29,13 @@ void BM_CppTraderRestLatency(benchmark::State &state) {
     }
     idx = n;
   };
-  warmUp(kWarmUpCount);
+  warmUp(warmupDepth<BookSize>());
 
   for (auto _ : state) {
     if (idx >= orders.size()) {
       state.PauseTiming();
       book = std::make_unique<CppTraderBook>();
-      warmUp(kWarmUpCount);
+      warmUp(warmupDepth<BookSize>());
       state.ResumeTiming();
     }
 
@@ -46,13 +46,13 @@ void BM_CppTraderRestLatency(benchmark::State &state) {
   }
 }
 
-#define FLATBOOK_REGISTER_CPPTRADER_REST(Levels)                                                   \
-  BENCHMARK_TEMPLATE(BM_CppTraderRestLatency, Levels, PriceDistribution::Uniform);                 \
-  BENCHMARK_TEMPLATE(BM_CppTraderRestLatency, Levels, PriceDistribution::Clustered)
+#define FLATBOOK_REGISTER_CPPTRADER_REST(Size, Levels)                                             \
+  BENCHMARK_TEMPLATE(BM_CppTraderRestLatency, Levels, Size, PriceDistribution::Uniform);           \
+  BENCHMARK_TEMPLATE(BM_CppTraderRestLatency, Levels, Size, PriceDistribution::Clustered)
 
-FLATBOOK_REGISTER_CPPTRADER_REST(1024);
-FLATBOOK_REGISTER_CPPTRADER_REST(16384);
-FLATBOOK_REGISTER_CPPTRADER_REST(262144);
+FLATBOOK_REGISTER_CPPTRADER_REST(32768, 1024);
+FLATBOOK_REGISTER_CPPTRADER_REST(131072, 16384);
+FLATBOOK_REGISTER_CPPTRADER_REST(524288, 262144);
 
 #undef FLATBOOK_REGISTER_CPPTRADER_REST
 
