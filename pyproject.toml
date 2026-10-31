@@ -5,12 +5,12 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "flatbook"
 version = "0.3.0"
-description = "Deterministic, allocation-free order book and matching engine for Python"
+description = "Low-latency, deterministic, allocation-free order book and matching engine for Python — ~30 ns C++ core, numpy batch API."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Vladimir Pavliv" }]
-keywords = ["order-book", "matching-engine", "low-latency", "backtest"]
+keywords = ["order-book", "matching-engine", "low-latency", "hft", "market-microstructure", "backtest"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
