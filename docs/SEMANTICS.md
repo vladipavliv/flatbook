@@ -11,9 +11,11 @@ no test, that is a bug in this document.
 | Limit × GTC | match at/better | rests | `Resting` / `Filled` |
 | Limit × IOC | match | cancelled | `Filled` / `Cancelled` |
 | Limit × FOK | all-or-nothing | - | `Filled` / `Rejected` |
+| Limit × AON | all-or-nothing | - | `Filled` / `Rejected` |
 | Market × GTC | match at best | cancelled (never rests) | `Filled` / `Cancelled` |
 | Market × IOC | match | cancelled | `Filled` / `Cancelled` |
 | Market × FOK | all-or-nothing | - | `Filled` / `Rejected` |
+| Market × AON | all-or-nothing | - | `Filled` / `Rejected` |
 
 - Zero quantity → `Rejected`, reason `InvalidQuantity`
   (`TestOrderBook.RejectReasonCoverage`).
@@ -26,6 +28,8 @@ no test, that is a bug in this document.
 - FOK that cannot fill fully → `Rejected`, `FokInsufficientLiquidity`
   (`TestOrderBook.RejectReasonsAreDistinct`). The FOK check is read-only: it sums
   the crossable levels' volume, excluding the aggressor's own orders under STP.
+- AON is all-or-none, like FOK; an AON that cannot fill fully → `Rejected`,
+  `AonInsufficientLiquidity` (`TestOrderBook.AonRejectsWithoutTouchingBook`).
 
 ## Self-trade prevention (STP)
 

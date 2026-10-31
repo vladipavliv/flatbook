@@ -74,6 +74,7 @@ public:
     GTC, ///< Good-til-cancelled: match, then rest the remainder.
     IOC, ///< Immediate-or-cancel: match, then discard the remainder.
     FOK, ///< Fill-or-kill: fill entirely or reject (nothing partial).
+    AON, ///< All-or-none: fill entirely or reject (nothing partial).
   };
 
   /**
@@ -115,6 +116,7 @@ public:
     PriceOutOfWindow,   ///< Limit price outside the configured price window.
     PostOnlyWouldCross, ///< Post-only order would have crossed.
     FokInsufficientLiquidity, ///< Fill-or-kill could not fill entirely.
+    AonInsufficientLiquidity, ///< All-or-none could not fill entirely.
     BookFull,                 ///< No free order slot.
     StpCancelNewest,          ///< Remainder would self-trade (cancelled by cancel-newest STP).
     UnknownOrder,             ///< Cancel/modify referenced a stale or unknown order id.
@@ -196,9 +198,11 @@ public:
       return {Result::Resting, id, 0, seq};
     }
 
-    // FOK: all or nothing. Verified read-only before mutating the book.
-    if (order.tif == TimeInForce::FOK && !canFillFully(order)) {
-      return {Result::Rejected, INVALID_ORDER, quantity, seq, Reason::FokInsufficientLiquidity};
+    // FOK / AON: all or nothing. Verified read-only before mutating the book.
+    if ((order.tif == TimeInForce::FOK || order.tif == TimeInForce::AON) && !canFillFully(order)) {
+      const Reason reason = order.tif == TimeInForce::FOK ? Reason::FokInsufficientLiquidity
+                                                          : Reason::AonInsufficientLiquidity;
+      return {Result::Rejected, INVALID_ORDER, quantity, seq, reason};
     }
 
     bool skippedSelf = false;
@@ -233,6 +237,9 @@ public:
 
     case TimeInForce::FOK:
       return {Result::Rejected, INVALID_ORDER, remaining, seq, Reason::FokInsufficientLiquidity};
+
+    case TimeInForce::AON:
+      return {Result::Rejected, INVALID_ORDER, remaining, seq, Reason::AonInsufficientLiquidity};
     }
 
     return {Result::Rejected, INVALID_ORDER, remaining, seq};

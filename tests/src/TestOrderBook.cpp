@@ -243,6 +243,48 @@ TEST(OrderBook, MarketFokIsAllOrNothing) {
 }
 
 // ---------------------------------------------------------------------------
+// AON
+// ---------------------------------------------------------------------------
+
+TEST(OrderBook, AonFillsFullyWhenLiquidityIsEnough) {
+  Engine e;
+  Fills fills;
+
+  submit(e, limit(100, 10, Side::Sell), fills);
+  auto r = submit(e,
+                  {.type = OrderType::Limit,
+                   .tif = TimeInForce::AON,
+                   .price = 100,
+                   .quantity = 10,
+                   .side = Side::Buy},
+                  fills);
+
+  EXPECT_EQ(r.result, Result::Filled);
+  ASSERT_EQ(fills.size(), 1u);
+  EXPECT_EQ(fills[0].quantity, 10u);
+}
+
+TEST(OrderBook, AonRejectsWithoutTouchingBook) {
+  Engine e;
+  Fills fills;
+
+  submit(e, limit(100, 5, Side::Sell), fills);
+  auto r = submit(e,
+                  {.type = OrderType::Limit,
+                   .tif = TimeInForce::AON,
+                   .price = 100,
+                   .quantity = 10,
+                   .side = Side::Buy},
+                  fills);
+
+  EXPECT_EQ(r.result, Result::Rejected);
+  EXPECT_EQ(r.reason, Engine::Reason::AonInsufficientLiquidity);
+  EXPECT_TRUE(fills.empty());
+  EXPECT_EQ(e.book().volume(100, Side::Sell), 5u); // untouched
+  EXPECT_EQ(e.openOrders(), 1u);
+}
+
+// ---------------------------------------------------------------------------
 // Post-only
 // ---------------------------------------------------------------------------
 
@@ -422,6 +464,17 @@ TEST(OrderBook, RejectReasonsAreDistinct) {
                     fills);
   EXPECT_EQ(fok.result, Result::Rejected);
   EXPECT_EQ(fok.reason, Engine::Reason::FokInsufficientLiquidity);
+
+  // AON that cannot fill -> AonInsufficientLiquidity.
+  auto aon = submit(e,
+                    {.type = OrderType::Limit,
+                     .tif = TimeInForce::AON,
+                     .price = 100,
+                     .quantity = 10,
+                     .side = Side::Buy},
+                    fills);
+  EXPECT_EQ(aon.result, Result::Rejected);
+  EXPECT_EQ(aon.reason, Engine::Reason::AonInsufficientLiquidity);
 
   // A normal filled order has no reason.
   auto filled = submit(e, limit(100, 5, Side::Buy), fills);

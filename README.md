@@ -15,7 +15,7 @@ latency stays flat as the book grows. Order ids can carry a generation, so a
 stale id never cancels or matches the wrong order, and the same input always
 produces the same fills and book state.
 
-Around the core: self-trade prevention, post-only / IOC / FOK / cancel-replace,
+Around the core: self-trade prevention, post-only / IOC / FOK / AON / cancel-replace,
 a sharded multi-symbol dispatcher, LOBSTER replay with a book validator, and
 Python bindings with a numpy batch API. Tested on GCC, Clang and MSVC; CI also
 runs ASan + UBSan, TSan, clang-tidy and libFuzzer.
@@ -80,7 +80,7 @@ Run the examples in [`examples/`](examples/) (`example_basic`, `example_dispatch
 
 | Feature | Status |
 |---|---|
-| Limit / market orders, GTC / IOC / FOK | ✅ |
+| Limit / market orders, GTC / IOC / FOK / AON | ✅ |
 | Post-only | ✅ |
 | Self-trade prevention (participant keys, cancel-newest) | ✅ |
 | Cancel / modify (cancel-replace) | ✅ |

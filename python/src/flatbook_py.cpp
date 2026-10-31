@@ -348,6 +348,7 @@ NB_MODULE(flatbook_py, m) {
   m.attr("GTC") = 0;
   m.attr("IOC") = 1;
   m.attr("FOK") = 2;
+  m.attr("AON") = 3;
   m.attr("BUY") = 0;
   m.attr("SELL") = 1;
 
