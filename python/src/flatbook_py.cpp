@@ -289,7 +289,6 @@ struct PyEngine {
       nb::ndarray<nb::numpy, const std::int64_t, nb::ndim<1>, nb::c_contig> price,
       nb::ndarray<nb::numpy, const std::uint32_t, nb::ndim<1>, nb::c_contig> quantity,
       nb::ndarray<nb::numpy, const std::uint32_t, nb::ndim<1>, nb::c_contig> participant) {
-    std::lock_guard<std::mutex> lock(mutex_);
     const std::size_t n = type.shape(0);
     if (tif.shape(0) != n || side.shape(0) != n || price.shape(0) != n ||
         quantity.shape(0) != n || participant.shape(0) != n) {
@@ -322,7 +321,11 @@ struct PyEngine {
     std::vector<std::uint64_t> fillSeq;
 
     {
+      // Release the GIL before taking the engine lock: a thread blocked on the
+      // lock must not hold the GIL, or it deadlocks with a thread that holds the
+      // lock and re-acquires the GIL to build the result.
       nb::gil_scoped_release release;
+      std::lock_guard<std::mutex> lock(mutex_);
       std::visit(
           [&](auto &ep) {
             using Engine = std::decay_t<decltype(*ep)>;
