@@ -205,6 +205,48 @@ jobs:
       - name: Test
         run: PYTHONPATH=build/python python -m pytest python/tests -q
 
+      - name: pip install smoke
+        run: |
+          pip install .
+          python -c "import flatbook_py as fb; e = fb.MatchingEngine(); assert e.open_orders() == 0"
+
+  consumer-smoke:
+    name: find-package-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DFLATBOOK_BUILD_TESTS=OFF -DFLATBOOK_BUILD_BENCHMARKS=OFF
+          -DFLATBOOK_BUILD_EXAMPLES=OFF -DFLATBOOK_BUILD_PYTHON=OFF
+          -DCMAKE_INSTALL_PREFIX=${{ runner.temp }}/prefix
+          && cmake --build build --target install
+
+      - name: Consume via find_package
+        run: |
+          set -e
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          cat > CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.25)
+          project(consumer CXX)
+          find_package(flatbook REQUIRED)
+          add_executable(c main.cpp)
+          target_link_libraries(c flatbook::flatbook)
+          EOF
+          cat > main.cpp <<'EOF'
+          #include <flatbook/MatchingEngine.hpp>
+          #include <flatbook/OrderBook.hpp>
+          int main() {
+            flatbook::MatchingEngine<flatbook::OrderBook<1024, 128>> e;
+            return e.openOrders() == 0 ? 0 : 1;
+          }
+          EOF
+          cmake -S . -B build -DCMAKE_PREFIX_PATH=${{ runner.temp }}/prefix
+          cmake --build build
+          ./build/c
+
   tidy:
     name: clang-tidy
     runs-on: ubuntu-latest

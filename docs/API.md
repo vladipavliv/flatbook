@@ -26,6 +26,21 @@ self-contained (verified by `./dev.sh headers`).
 `0.x` may break the API on a minor bump; `1.0.0` freezes it. See
 [CHANGELOG.md](../CHANGELOG.md) for breaking changes.
 
+## API stability (the 1.0 freeze contract)
+
+- **Enums** (`Result`, `Reason`, `OrderType`, `TimeInForce`): values may be
+  **added** in a minor release, but never renamed or reordered. Treat them as
+  an open set (add a `default:` to exhaustive switches).
+- **`DispatcherEvent`** and its `CancelEvent` / `RebaseEvent` payloads: the
+  layout is part of the SPSC contract, so it is stable and trivially copyable.
+- **`Snapshot`**: an in-process state capture, **not** a stable serialization
+  format. Its layout may change without a semver bump; it is for save/restore
+  and state comparison, not a file format.
+- **Release vs UB**: precondition-guarded accessors (`qty`, `priceOf`, `sideOf`,
+  `participantOf`, `reduce`, ...) assert in debug builds and have undefined
+  behavior on invalid input in `Release`. Call them only on live ids / in-window
+  prices; the safety model is documented in [DESIGN.md](DESIGN.md).
+
 ## Semantics
 
 Edge-case behavior is specified in [SEMANTICS.md](SEMANTICS.md); the safety model
