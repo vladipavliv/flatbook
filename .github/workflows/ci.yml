@@ -176,6 +176,35 @@ jobs:
       - name: Check version consistency
         run: python3 scripts/check_version.py .
 
+  python:
+    name: python-bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install nanobind numpy pytest
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DFLATBOOK_BUILD_PYTHON=ON
+          -DFLATBOOK_BUILD_TESTS=OFF
+          -DFLATBOOK_BUILD_BENCHMARKS=OFF
+          -DFLATBOOK_BUILD_EXAMPLES=OFF
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: PYTHONPATH=build/python python -m pytest python/tests -q
+
   tidy:
     name: clang-tidy
     runs-on: ubuntu-latest
