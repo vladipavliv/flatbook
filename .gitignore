@@ -49,9 +49,5 @@ __pycache__/
 .venv/
 .pytest_cache/
 
-# Личный роадмап (не в репе)
-ROADMAP.md
-TODO.md
-
-# Дизайн персистентности (закрытая ПРО-версия, не в открытой репе)
-docs/PERSISTENCE_DESIGN.md
+# Локальные заметки (не в репе)
+KILO_TODO/
