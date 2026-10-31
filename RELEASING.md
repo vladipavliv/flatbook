@@ -27,6 +27,13 @@ The version is declared in **four places** and must stay in sync (checked by
    Changed / Breaking changes.
 8. Tag `vX.Y.Z` and push.
 
+Pushing the tag runs the `Publish` workflow (`.github/workflows/publish.yml`):
+cibuildwheel builds wheels for linux/macos/windows and `pypa/gh-action-pypi-publish`
+uploads them + the sdist to PyPI via **trusted publishing** (no secrets). Configure
+it once on PyPI: project → settings → trusted publishers → add this repo +
+workflow `publish.yml` + environment `pypi`. vcpkg and Conan Center are manual PRs
+to their registries (see `TODO.md`), not part of this workflow.
+
 ## Exit criteria for 1.0.0
 
 The items below are the plan for leaving `0.x`. Check them off as they land.
