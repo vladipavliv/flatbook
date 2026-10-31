@@ -5,6 +5,10 @@
 //
 // The book is heap-allocated (it is large) and the price window follows the
 // stream via rebase, so a whole day's price range works.
+//
+// Note: this measures end-to-end *feed replay* throughput - file IO plus the
+// `sscanf` line parser plus the unordered_map id index dominate; it is not a
+// probe of the matching engine's hot path.
 
 #include <chrono>
 #include <cstdint>

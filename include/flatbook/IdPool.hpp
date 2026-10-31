@@ -24,7 +24,9 @@ namespace flatbook {
  * a stale id never aliases a recycled slot. All generation state lives here -
  * the book never manages it.
  *
- * @tparam Size Maximum number of slots.
+ * @tparam Size Maximum number of slots. Must be strictly less than
+ *             `Id::invalid().index()`, so the invalid sentinel is never a valid
+ *             slot index (a `uint16` index caps `Size` at 65534).
  * @tparam Id   Id type satisfying the order-id interface (RawId / GenerationalId).
  */
 template <uint32_t Size, OrderIdLike<IndexType<Size>> Id = RawId<Size>>

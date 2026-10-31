@@ -160,8 +160,9 @@ public:
   /**
    * @brief Submit an order.
    *
-   * Fills are delivered to @p onFill in execution order; the callback must not
-   * throw (the engine is noexcept by contract).
+   * Fills are delivered to @p onFill in execution order. The callback must not
+   * throw or allocate: the engine is `noexcept`, so a throwing callback (e.g.
+   * `std::bad_alloc` from an allocating sink) terminates the process.
    *
    * @tparam OnFill Callable accepting a `const Fill&`.
    * @param order  Order request.
