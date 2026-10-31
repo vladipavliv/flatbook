@@ -9,7 +9,7 @@ While the project is in `0.x`, the minor version may introduce breaking API
 changes (`0.1.0` → `0.2.0`); patch releases (`0.1.0` → `0.1.1`) are
 backward-compatible fixes only.
 
-## [Unreleased]
+## [0.3.0] - 2026-10-31
 
 ### Added
 
@@ -18,11 +18,14 @@ backward-compatible fixes only.
 - `Parker`: lost-wakeup-safe park/unpark via `std::atomic::wait/notify`.
 - `Threading.hpp`: `pinCurrentThread` / `setCurrentThreadRealTime`.
 - `MatchingConfig::collectorCore`: pin (and real-time) the collector thread.
+- Python: `base()` / `rebase()` (price-window control) and a thread-safe engine.
 
 ### Changed
 
 - Benchmarks: depth scales with book capacity; HashMapBook/Liquibook baselines
   are reproducible via `./dev.sh bench --refs`.
+- CI: Python bindings + `find_package`/`pip install` smoke tests; PyPI publish
+  workflow (`publish.yml`, trusted publishing).
 
 ### Fixed
 
