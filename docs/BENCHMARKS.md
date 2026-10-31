@@ -96,9 +96,12 @@ rejected immediately, so its number reflects the cheap reject path, not a
 deep-book full fill.
 
 The dispatcher throughput benchmark is `flatbook_dispatcher_bench`: end-to-end
-~18M orders/s with one worker (mixed crossing, 256 symbols) and near-linear
-scaling with the worker count (~2.2× at 2, ~4.3× at 4, saturating near the core
-count at 8). The single ingress and collector threads bound how far it scales.
+~8.6M orders/s with one worker (mixed crossing, 256 symbols), ~1.85× at 2
+workers and then flat (~1.98× at 8) - the single ingress and collector threads
+bound how far it scales, so beyond ~2 workers matching is no longer the
+bottleneck. Threads are pinned and put on SCHED_FIFO via
+`benchmarks/dispatcher.conf` (ingress → core 2, collector → core 3, workers →
+core 4+); run as root or with `CAP_SYS_NICE` for the real-time part.
 
 ## Graphs
 
