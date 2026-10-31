@@ -353,6 +353,8 @@ public:
   }
 
   /// @return Read-only access to a symbol's engine (e.g. for assertions/tests).
+  ///         Only safe after stop(): while running, workers mutate these
+  ///         engines, so reading one races with the matching path.
   [[nodiscard]]
   const Engine &engine(uint32_t symbolIdx) const noexcept {
     return books_[symbolIdx];

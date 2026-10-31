@@ -58,7 +58,9 @@ concept OrderBookLike = requires {
   typename B::ParticipantType;
 
   requires std::same_as<std::remove_cv_t<decltype(B::kHasParticipants)>, bool>;
+  requires std::same_as<std::remove_cv_t<decltype(B::kSize)>, std::uint32_t>;
   requires std::same_as<std::remove_cv_t<decltype(B::kPriceLevels)>, std::uint32_t>;
+  requires std::same_as<std::remove_cv_t<decltype(B::kRebaseable)>, bool>;
   requires std::same_as<std::remove_cv_t<decltype(B::INVALID_ORDER)>, typename B::OrderIdx>;
   requires std::same_as<std::remove_cv_t<decltype(B::INVALID_PRICE)>, typename B::Price>;
 } && requires(B &b, const B &cb) {

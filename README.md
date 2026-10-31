@@ -57,7 +57,7 @@ using Engine = flatbook::MatchingEngine<Book>;
 
 Engine engine;
 
-engine.addOrder({
+(void)engine.addOrder({
     .type = Engine::OrderType::Limit,
     .tif  = Engine::TimeInForce::GTC,
     .price = 100, .quantity = 10, .side = Engine::Side::Buy,

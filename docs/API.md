@@ -5,9 +5,12 @@ self-contained (verified by `./dev.sh headers`).
 
 | Header | What it provides |
 |---|---|
+| `Types.hpp` | `Price`, `Quantity`, `Volume`, `Sequence` (fixed-width value types) |
+| `Concepts.hpp` | `OrderIdLike`, `OrderBookLike` (compile-time contracts) |
 | `MatchingEngine.hpp` | `MatchingEngine<Book>`, `Result`, `Reason`, `AddResult`, `CancelResult`, `Fill`, order / TIF enums |
 | `OrderBook.hpp` | `OrderBook<Size, PriceLevels, Id, Participant, Rebaseable>` (the data structure) |
 | `MatchingDispatcher.hpp` | `MatchingDispatcher`, `DispatcherEvent`, `makeDispatcher`, `MatchingConfig`, `Stats` |
+| `CircuitBreaker.hpp` | `CircuitBreaker<Engine>` (price band + volatility halt wrapper) |
 | `Lobster.hpp` | `LobsterReplay`, `LobsterFeed`, `parseLobsterLine`, `parseOrderbookLine`, `replayLobsterFile` |
 | `LobsterValidator.hpp` | `validateLobster`, `matchesTopN` |
 | `Id.hpp`, `IdPool.hpp` | `RawId`, `GenerationalId`, `IdPool` |

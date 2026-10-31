@@ -22,6 +22,10 @@ namespace flatbook {
  * single-producer / single-consumer contract.
  *
  * Ported from the hft project's TurboSPSC.
+ *
+ * @tparam Capacity Ring size in 64-byte blocks (the byte capacity is
+ *                 `Capacity * 64`, so the element count depends on the element
+ *                 size).
  */
 template <size_t Capacity = 1 << 12>
 class SpscQueue {

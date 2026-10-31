@@ -483,7 +483,6 @@ private:
 
   /// Whether the order would be rejected for a reason checkable before any
   /// book mutation (static constraints plus post-only/FOK pre-checks).
-  [[nodiscard]]
   /// @return The reason the order would be rejected, or Reason::None if it is
   ///         acceptable. Used by modify() to report the exact failure.
   [[nodiscard]]
