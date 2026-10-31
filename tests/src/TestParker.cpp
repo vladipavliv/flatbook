@@ -47,8 +47,11 @@ TEST(Parker, PingPong) {
       if (stop.load(std::memory_order_acquire)) {
         break;
       }
-      go.store(false, std::memory_order_release);
-      rounds.fetch_add(1, std::memory_order_relaxed);
+      // Consume the signal atomically: park() may return spuriously, so only a
+      // true go flips the counter.
+      if (go.exchange(false, std::memory_order_acq_rel)) {
+        rounds.fetch_add(1, std::memory_order_relaxed);
+      }
     }
   });
 
